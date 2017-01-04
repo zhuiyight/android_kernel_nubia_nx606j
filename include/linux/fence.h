@@ -399,12 +399,32 @@ static inline struct fence *fence_later(struct fence *f1, struct fence *f2)
 static inline int fence_get_status_locked(struct fence *fence)
 {
 	if (fence_is_signaled_locked(fence))
-		return fence->status < 0 ? fence->status : 1;
+		return fence->error ?: 1;
 	else
 		return 0;
 }
 
 int fence_get_status(struct fence *fence);
+
+/**
+ * fence_set_error - flag an error condition on the fence
+ * @fence: [in]	the fence
+ * @error: [in]	the error to store
+ *
+ * Drivers can supply an optional error status condition before they signal
+ * the fence, to indicate that the fence was completed due to an error
+ * rather than success. This must be set before signaling (so that the value
+ * is visible before any waiters on the signal callback are woken). This
+ * helper exists to help catching erroneous setting of #fence.error.
+ */
+static inline void fence_set_error(struct fence *fence,
+				       int error)
+{
+	BUG_ON(test_bit(FENCE_FLAG_SIGNALED_BIT, &fence->flags));
+	BUG_ON(error >= 0 || error < -MAX_ERRNO);
+
+	fence->error = error;
+}
 
 signed long fence_wait_timeout(struct fence *, bool intr, signed long timeout);
 signed long fence_wait_any_timeout(struct fence **fences, uint32_t count,
