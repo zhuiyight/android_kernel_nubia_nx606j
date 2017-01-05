@@ -7524,31 +7524,87 @@ static int ufshcd_scsi_add_wlus(struct ufs_hba *hba)
 	}
 	scsi_device_put(hba->sdev_ufs_device);
 
-	if (is_bootable_dev) {
-		sdev_boot = __scsi_add_device(hba->host, 0, 0,
-			ufshcd_upiu_wlun_to_scsi_wlun(UFS_UPIU_BOOT_WLUN),
-			NULL);
+	sdev_boot = __scsi_add_device(hba->host, 0, 0,
+		ufshcd_upiu_wlun_to_scsi_wlun(UFS_UPIU_BOOT_WLUN), NULL);
+	if (IS_ERR(sdev_boot)) {
+		ret = PTR_ERR(sdev_boot);
+		goto remove_sdev_ufs_device;
+	}
+	scsi_device_put(sdev_boot);
 
-		if (IS_ERR(sdev_boot)) {
-			dev_err(hba->dev, "%s: failed adding BOOT_WLUN. ret %d\n",
-				__func__, ret);
-			ret = PTR_ERR(sdev_boot);
-			goto remove_sdev_ufs_device;
-		}
-		scsi_device_put(sdev_boot);
+	sdev_rpmb = __scsi_add_device(hba->host, 0, 0,
+		ufshcd_upiu_wlun_to_scsi_wlun(UFS_UPIU_RPMB_WLUN), NULL);
+	if (IS_ERR(sdev_rpmb)) {
+		ret = PTR_ERR(sdev_rpmb);
+		goto remove_sdev_boot;
+	}
+	scsi_device_put(sdev_rpmb);
+	goto out;
+
+remove_sdev_boot:
+	scsi_remove_device(sdev_boot);
+remove_sdev_ufs_device:
+	scsi_remove_device(hba->sdev_ufs_device);
+out:
+	return ret;
+}
+
+static int ufs_get_device_desc(struct ufs_hba *hba,
+			       struct ufs_dev_desc *dev_desc)
+{
+	int err;
+	u8 model_index;
+	u8 str_desc_buf[QUERY_DESC_STRING_MAX_SIZE + 1] = {0};
+	u8 desc_buf[QUERY_DESC_DEVICE_MAX_SIZE];
+
+	err = ufshcd_read_device_desc(hba, desc_buf,
+					QUERY_DESC_DEVICE_MAX_SIZE);
+	if (err) {
+		dev_err(hba->dev, "%s: Failed reading Device Desc. err = %d\n",
+			__func__, err);
+		goto out;
 	}
 
-	if (is_embedded_dev) {
-		sdev_rpmb = __scsi_add_device(hba->host, 0, 0,
-			ufshcd_upiu_wlun_to_scsi_wlun(UFS_UPIU_RPMB_WLUN),
-			NULL);
-		if (IS_ERR(sdev_rpmb)) {
-			dev_err(hba->dev, "%s: failed adding RPMB_WLUN. ret %d\n",
-				__func__, ret);
-			ret = PTR_ERR(sdev_rpmb);
-			goto remove_sdev_boot;
-		}
-		scsi_device_put(sdev_rpmb);
+	/*
+	 * getting vendor (manufacturerID) and Bank Index in big endian
+	 * format
+	 */
+	dev_desc->wmanufacturerid = desc_buf[DEVICE_DESC_PARAM_MANF_ID] << 8 |
+				     desc_buf[DEVICE_DESC_PARAM_MANF_ID + 1];
+
+	model_index = desc_buf[DEVICE_DESC_PARAM_PRDCT_NAME];
+
+	err = ufshcd_read_string_desc(hba, model_index, str_desc_buf,
+					QUERY_DESC_STRING_MAX_SIZE, ASCII_STD);
+	if (err) {
+		dev_err(hba->dev, "%s: Failed reading Product Name. err = %d\n",
+			__func__, err);
+		goto out;
+	}
+
+	str_desc_buf[QUERY_DESC_STRING_MAX_SIZE] = '\0';
+	strlcpy(dev_desc->model, (str_desc_buf + QUERY_DESC_HDR_SIZE),
+		min_t(u8, str_desc_buf[QUERY_DESC_LENGTH_OFFSET],
+		      MAX_MODEL_LEN));
+
+	/* Null terminate the model string */
+	dev_desc->model[MAX_MODEL_LEN] = '\0';
+
+out:
+	return err;
+}
+
+static void ufs_fixup_device_setup(struct ufs_hba *hba,
+				   struct ufs_dev_desc *dev_desc)
+{
+	struct ufs_dev_fix *f;
+
+	for (f = ufs_fixups; f->quirk; f++) {
+		if ((f->card.wmanufacturerid == dev_desc->wmanufacturerid ||
+		     f->card.wmanufacturerid == UFS_ANY_VENDOR) &&
+		    (STR_PRFX_EQUAL(f->card.model, dev_desc->model) ||
+		     !strcmp(f->card.model, UFS_ANY_MODEL)))
+			hba->dev_quirks |= f->quirk;
 	}
 	goto out;
 
@@ -7905,6 +7961,7 @@ static void ufshcd_def_desc_sizes(struct ufs_hba *hba)
  */
 static int ufshcd_probe_hba(struct ufs_hba *hba)
 {
+	struct ufs_dev_desc card = {0};
 	int ret;
 	ktime_t start = ktime_get();
 
@@ -7929,17 +7986,14 @@ static int ufshcd_probe_hba(struct ufs_hba *hba)
 	if (ret)
 		goto out;
 
-	/* clear any previous UFS device information */
-	memset(&hba->dev_info, 0, sizeof(hba->dev_info));
-
-	/* cache important parameters from device descriptor for later use */
-	ret = ufs_read_device_desc_data(hba);
-	if (ret)
+	ret = ufs_get_device_desc(hba, &card);
+	if (ret) {
+		dev_err(hba->dev, "%s: Failed getting device info. err = %d\n",
+			__func__, ret);
 		goto out;
+	}
 
-	/* Init check for device descriptor sizes */
-	ufshcd_init_desc_sizes(hba);
-	ufs_advertise_fixup_device(hba);
+	ufs_fixup_device_setup(hba, &card);
 	ufshcd_tune_unipro_params(hba);
 
 	ufshcd_apply_pm_quirks(hba);
