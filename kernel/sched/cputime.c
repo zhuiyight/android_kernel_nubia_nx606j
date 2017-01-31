@@ -92,8 +92,15 @@ EXPORT_SYMBOL_GPL(irqtime_account_irq);
 
 static cputime_t irqtime_tick_accounted(cputime_t maxtime)
 {
-	struct irqtime *irqtime = this_cpu_ptr(&cpu_irqtime);
-	cputime_t delta;
+	u64 *cpustat = kcpustat_this_cpu->cpustat;
+	cputime_t irq_cputime;
+
+	irq_cputime = nsecs_to_cputime64(irqtime - cpustat[idx]);
+	irq_cputime = min(irq_cputime, maxtime);
+	cpustat[idx] += cputime_to_nsecs(irq_cputime);
+
+	return irq_cputime;
+}
 
 	delta = nsecs_to_cputime(irqtime->tick_delta);
 	delta = min(delta, maxtime);
