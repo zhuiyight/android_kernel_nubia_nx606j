@@ -57,6 +57,7 @@ static void irqtime_account_delta(struct irqtime *irqtime, u64 delta,
 void irqtime_account_irq(struct task_struct *curr)
 {
 	struct irqtime *irqtime = this_cpu_ptr(&cpu_irqtime);
+	u64 *cpustat = kcpustat_this_cpu->cpustat;
 	s64 delta;
 	int cpu;
 	u64 wallclock;
@@ -76,12 +77,13 @@ void irqtime_account_irq(struct task_struct *curr)
 	 * in that case, so as not to confuse scheduler with a special task
 	 * that do not consume any time, but still wants to run.
 	 */
-	if (hardirq_count())
-		irqtime_account_delta(irqtime, delta, CPUTIME_IRQ);
-	else if (in_serving_softirq() && curr != this_cpu_ksoftirqd())
-		irqtime_account_delta(irqtime, delta, CPUTIME_SOFTIRQ);
-	else
-		account = false;
+	if (hardirq_count()) {
+		cpustat[CPUTIME_IRQ] += delta;
+		irqtime->tick_delta += delta;
+	} else if (in_serving_softirq() && curr != this_cpu_ksoftirqd()) {
+		cpustat[CPUTIME_SOFTIRQ] += delta;
+		irqtime->tick_delta += delta;
+	}
 
 	if (account)
 		sched_account_irqtime(cpu, curr, delta, wallclock);
@@ -92,15 +94,8 @@ EXPORT_SYMBOL_GPL(irqtime_account_irq);
 
 static cputime_t irqtime_tick_accounted(cputime_t maxtime)
 {
-	u64 *cpustat = kcpustat_this_cpu->cpustat;
-	cputime_t irq_cputime;
-
-	irq_cputime = nsecs_to_cputime64(irqtime - cpustat[idx]);
-	irq_cputime = min(irq_cputime, maxtime);
-	cpustat[idx] += cputime_to_nsecs(irq_cputime);
-
-	return irq_cputime;
-}
+	struct irqtime *irqtime = this_cpu_ptr(&cpu_irqtime);
+	cputime_t delta;
 
 	delta = nsecs_to_cputime(irqtime->tick_delta);
 	delta = min(delta, maxtime);
