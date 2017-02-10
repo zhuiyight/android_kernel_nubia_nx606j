@@ -65,7 +65,7 @@ struct proc_inode {
 	struct proc_dir_entry *pde;
 	struct ctl_table_header *sysctl;
 	struct ctl_table *sysctl_entry;
-	struct hlist_node sysctl_inodes;
+	struct list_head sysctl_inodes;
 	const struct proc_ns_operations *ns_ops;
 	struct inode vfs_inode;
 };
@@ -257,15 +257,6 @@ extern void proc_sys_evict_inode(struct inode *inode,
 static inline void proc_sys_init(void) { }
 static inline void proc_sys_evict_inode(struct  inode *inode,
 					struct ctl_table_header *head) { }
-#endif
-
-/*
- * uid.c
- */
-#ifdef CONFIG_PROC_UID
-extern int proc_uid_init(void);
-#else
-static inline void proc_uid_init(void) { }
 #endif
 
 /*
