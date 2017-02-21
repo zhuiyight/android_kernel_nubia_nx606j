@@ -210,7 +210,7 @@
 #ifdef CONFIG_STACK_VALIDATION
 #define annotate_unreachable() ({					\
 	asm("1:\t\n"							\
-	    ".pushsection .discard.unreachable\t\n"			\
+	    ".pushsection __unreachable, \"a\"\t\n"			\
 	    ".long 1b\t\n"						\
 	    ".popsection\t\n");						\
 })
@@ -227,8 +227,7 @@
  * this in the preprocessor, but we can live with this because they're
  * unreleased.  Really, we need to have autoconf for the kernel.
  */
-#define unreachable() \
-	do { annotate_unreachable(); __builtin_unreachable(); } while (0)
+#define unreachable() annotate_unreachable(); __builtin_unreachable()
 
 /* Mark a function definition as prohibited from being cloned. */
 #define __noclone	__attribute__((__noclone__, __optimize__("no-tracer")))
