@@ -235,25 +235,6 @@ void ufshcd_update_query_stats(struct ufs_hba *hba,
 		_ret;                                                   \
 	})
 
-static void ufshcd_hex_dump(struct ufs_hba *hba, const char * const str,
-			    const void *buf, size_t len)
-
-{
-	/*
-	 * device name is expected to take up ~20 characters and "str" passed
-	 * to this function is expected to be of ~10 character so we would need
-	 * ~30 characters string to hold the concatenation of these 2 strings.
-	 */
-	#define MAX_PREFIX_STR_SIZE 50
-	char prefix_str[MAX_PREFIX_STR_SIZE] = {0};
-
-	/* concatenate the device name and "str" */
-	snprintf(prefix_str, MAX_PREFIX_STR_SIZE, "%s %s: ",
-		 dev_name(hba->dev), str);
-	print_hex_dump(KERN_ERR, prefix_str, DUMP_PREFIX_OFFSET,
-		       16, 4, buf, len, false);
-}
-
 enum {
 	UFSHCD_MAX_CHANNEL	= 0,
 	UFSHCD_MAX_ID		= 1,
@@ -3838,6 +3819,92 @@ int ufshcd_map_desc_id_to_length(struct ufs_hba *hba,
 EXPORT_SYMBOL(ufshcd_map_desc_id_to_length);
 
 /**
+ * ufshcd_read_desc_length - read the specified descriptor length from header
+ * @hba: Pointer to adapter instance
+ * @desc_id: descriptor idn value
+ * @desc_index: descriptor index
+ * @desc_length: pointer to variable to read the length of descriptor
+ *
+ * Return 0 in case of success, non-zero otherwise
+ */
+static int ufshcd_read_desc_length(struct ufs_hba *hba,
+	enum desc_idn desc_id,
+	int desc_index,
+	int *desc_length)
+{
+	int ret;
+	u8 header[QUERY_DESC_HDR_SIZE];
+	int header_len = QUERY_DESC_HDR_SIZE;
+
+	if (desc_id >= QUERY_DESC_IDN_MAX)
+		return -EINVAL;
+
+	ret = ufshcd_query_descriptor_retry(hba, UPIU_QUERY_OPCODE_READ_DESC,
+					desc_id, desc_index, 0, header,
+					&header_len);
+
+	if (ret) {
+		dev_err(hba->dev, "%s: Failed to get descriptor header id %d",
+			__func__, desc_id);
+		return ret;
+	} else if (desc_id != header[QUERY_DESC_DESC_TYPE_OFFSET]) {
+		dev_warn(hba->dev, "%s: descriptor header id %d and desc_id %d mismatch",
+			__func__, header[QUERY_DESC_DESC_TYPE_OFFSET],
+			desc_id);
+		ret = -EINVAL;
+	}
+
+	*desc_length = header[QUERY_DESC_LENGTH_OFFSET];
+	return ret;
+
+}
+
+/**
+ * ufshcd_map_desc_id_to_length - map descriptor IDN to its length
+ * @hba: Pointer to adapter instance
+ * @desc_id: descriptor idn value
+ * @desc_len: mapped desc length (out)
+ *
+ * Return 0 in case of success, non-zero otherwise
+ */
+int ufshcd_map_desc_id_to_length(struct ufs_hba *hba,
+	enum desc_idn desc_id, int *desc_len)
+{
+	switch (desc_id) {
+	case QUERY_DESC_IDN_DEVICE:
+		*desc_len = hba->desc_size.dev_desc;
+		break;
+	case QUERY_DESC_IDN_POWER:
+		*desc_len = hba->desc_size.pwr_desc;
+		break;
+	case QUERY_DESC_IDN_GEOMETRY:
+		*desc_len = hba->desc_size.geom_desc;
+		break;
+	case QUERY_DESC_IDN_CONFIGURATION:
+		*desc_len = hba->desc_size.conf_desc;
+		break;
+	case QUERY_DESC_IDN_UNIT:
+		*desc_len = hba->desc_size.unit_desc;
+		break;
+	case QUERY_DESC_IDN_INTERCONNECT:
+		*desc_len = hba->desc_size.interc_desc;
+		break;
+	case QUERY_DESC_IDN_STRING:
+		*desc_len = QUERY_DESC_MAX_SIZE;
+		break;
+	case QUERY_DESC_IDN_RFU_0:
+	case QUERY_DESC_IDN_RFU_1:
+		*desc_len = 0;
+		break;
+	default:
+		*desc_len = 0;
+		return -EINVAL;
+	}
+	return 0;
+}
+EXPORT_SYMBOL(ufshcd_map_desc_id_to_length);
+
+/**
  * ufshcd_read_desc_param - read the specified descriptor parameter
  * @hba: Pointer to adapter instance
  * @desc_id: descriptor idn value
@@ -3887,14 +3954,13 @@ static int ufshcd_read_desc_param(struct ufs_hba *hba,
 	}
 
 	/* Request for full descriptor */
-	ret = ufshcd_query_descriptor(hba, UPIU_QUERY_OPCODE_READ_DESC,
+	ret = ufshcd_query_descriptor_retry(hba, UPIU_QUERY_OPCODE_READ_DESC,
 					desc_id, desc_index, 0,
 					desc_buf, &buff_len);
 
 	if (ret) {
 		dev_err(hba->dev, "%s: Failed reading descriptor. desc_id %d, desc_index %d, param_offset %d, ret %d",
 			__func__, desc_id, desc_index, param_offset, ret);
-
 		goto out;
 	}
 
@@ -3906,25 +3972,9 @@ static int ufshcd_read_desc_param(struct ufs_hba *hba,
 		goto out;
 	}
 
-	/*
-	 * While reading variable size descriptors (like string descriptor),
-	 * some UFS devices may report the "LENGTH" (field in "Transaction
-	 * Specific fields" of Query Response UPIU) same as what was requested
-	 * in Query Request UPIU instead of reporting the actual size of the
-	 * variable size descriptor.
-	 * Although it's safe to ignore the "LENGTH" field for variable size
-	 * descriptors as we can always derive the length of the descriptor from
-	 * the descriptor header fields. Hence this change impose the length
-	 * match check only for fixed size descriptors (for which we always
-	 * request the correct size as part of Query Request UPIU).
-	 */
-	if ((desc_id != QUERY_DESC_IDN_STRING) &&
-	    (buff_len != desc_buf[QUERY_DESC_LENGTH_OFFSET])) {
-		dev_err(hba->dev, "%s: desc_buf length mismatch: buff_len %d, buff_len(desc_header) %d",
-			__func__, buff_len, desc_buf[QUERY_DESC_LENGTH_OFFSET]);
-		ret = -EINVAL;
-		goto out;
-	}
+	/* Check wherher we will not copy more data, than available */
+	if (is_kmalloc && param_size > buff_len)
+		param_size = buff_len;
 
 	/* Check wherher we will not copy more data, than available */
 	if (is_kmalloc && param_size > buff_len)
@@ -7434,17 +7484,7 @@ static void ufshcd_set_active_icc_lvl(struct ufs_hba *hba)
 {
 	int ret;
 	int buff_len = hba->desc_size.pwr_desc;
-	u8 *desc_buf = NULL;
-	u32 icc_level;
-
-	if (buff_len) {
-		desc_buf = kmalloc(buff_len, GFP_KERNEL);
-		if (!desc_buf) {
-			dev_err(hba->dev,
-				"%s: Failed to allocate desc_buf\n", __func__);
-			return;
-		}
-	}
+	u8 desc_buf[hba->desc_size.pwr_desc];
 
 	ret = ufshcd_read_power_desc(hba, desc_buf, buff_len);
 	if (ret) {
@@ -7554,11 +7594,10 @@ static int ufs_get_device_desc(struct ufs_hba *hba,
 {
 	int err;
 	u8 model_index;
-	u8 str_desc_buf[QUERY_DESC_STRING_MAX_SIZE + 1] = {0};
-	u8 desc_buf[QUERY_DESC_DEVICE_MAX_SIZE];
+	u8 str_desc_buf[QUERY_DESC_MAX_SIZE + 1] = {0};
+	u8 desc_buf[hba->desc_size.dev_desc];
 
-	err = ufshcd_read_device_desc(hba, desc_buf,
-					QUERY_DESC_DEVICE_MAX_SIZE);
+	err = ufshcd_read_device_desc(hba, desc_buf, hba->desc_size.dev_desc);
 	if (err) {
 		dev_err(hba->dev, "%s: Failed reading Device Desc. err = %d\n",
 			__func__, err);
@@ -7575,14 +7614,14 @@ static int ufs_get_device_desc(struct ufs_hba *hba,
 	model_index = desc_buf[DEVICE_DESC_PARAM_PRDCT_NAME];
 
 	err = ufshcd_read_string_desc(hba, model_index, str_desc_buf,
-					QUERY_DESC_STRING_MAX_SIZE, ASCII_STD);
+				QUERY_DESC_MAX_SIZE, ASCII_STD);
 	if (err) {
 		dev_err(hba->dev, "%s: Failed reading Product Name. err = %d\n",
 			__func__, err);
 		goto out;
 	}
 
-	str_desc_buf[QUERY_DESC_STRING_MAX_SIZE] = '\0';
+	str_desc_buf[QUERY_DESC_MAX_SIZE] = '\0';
 	strlcpy(dev_desc->model, (str_desc_buf + QUERY_DESC_HDR_SIZE),
 		min_t(u8, str_desc_buf[QUERY_DESC_LENGTH_OFFSET],
 		      MAX_MODEL_LEN));
@@ -7784,130 +7823,6 @@ static void ufshcd_tune_unipro_params(struct ufs_hba *hba)
 	ufshcd_vops_apply_dev_quirks(hba);
 }
 
-static void ufshcd_clear_dbg_ufs_stats(struct ufs_hba *hba)
-{
-	int err_reg_hist_size = sizeof(struct ufs_uic_err_reg_hist);
-
-	memset(&hba->ufs_stats.pa_err, 0, err_reg_hist_size);
-	memset(&hba->ufs_stats.dl_err, 0, err_reg_hist_size);
-	memset(&hba->ufs_stats.nl_err, 0, err_reg_hist_size);
-	memset(&hba->ufs_stats.tl_err, 0, err_reg_hist_size);
-	memset(&hba->ufs_stats.dme_err, 0, err_reg_hist_size);
-
-	hba->req_abort_count = 0;
-}
-
-static void ufshcd_apply_pm_quirks(struct ufs_hba *hba)
-{
-	if (hba->dev_info.quirks & UFS_DEVICE_QUIRK_NO_LINK_OFF) {
-		if (ufs_get_pm_lvl_to_link_pwr_state(hba->rpm_lvl) ==
-		    UIC_LINK_OFF_STATE) {
-			hba->rpm_lvl =
-				ufs_get_desired_pm_lvl_for_dev_link_state(
-						UFS_SLEEP_PWR_MODE,
-						UIC_LINK_HIBERN8_STATE);
-			dev_info(hba->dev, "UFS_DEVICE_QUIRK_NO_LINK_OFF enabled, changed rpm_lvl to %d\n",
-				hba->rpm_lvl);
-		}
-		if (ufs_get_pm_lvl_to_link_pwr_state(hba->spm_lvl) ==
-		    UIC_LINK_OFF_STATE) {
-			hba->spm_lvl =
-				ufs_get_desired_pm_lvl_for_dev_link_state(
-						UFS_SLEEP_PWR_MODE,
-						UIC_LINK_HIBERN8_STATE);
-			dev_info(hba->dev, "UFS_DEVICE_QUIRK_NO_LINK_OFF enabled, changed spm_lvl to %d\n",
-				hba->spm_lvl);
-		}
-	}
-}
-
-/**
- * ufshcd_set_dev_ref_clk - set the device bRefClkFreq
- * @hba: per-adapter instance
- *
- * Read the current value of the bRefClkFreq attribute from device and update it
- * if host is supplying different reference clock frequency than one mentioned
- * in bRefClkFreq attribute.
- *
- * Returns zero on success, non-zero error value on failure.
- */
-static int ufshcd_set_dev_ref_clk(struct ufs_hba *hba)
-{
-	int err = 0;
-	int ref_clk = -1;
-	static const char * const ref_clk_freqs[] = {"19.2 MHz", "26 MHz",
-						     "38.4 MHz", "52 MHz"};
-
-	err = ufshcd_query_attr_retry(hba, UPIU_QUERY_OPCODE_READ_ATTR,
-			QUERY_ATTR_IDN_REF_CLK_FREQ, 0, 0, &ref_clk);
-
-	if (err) {
-		dev_err(hba->dev, "%s: failed reading bRefClkFreq. err = %d\n",
-			 __func__, err);
-		goto out;
-	}
-
-	if ((ref_clk < 0) || (ref_clk > REF_CLK_FREQ_52_MHZ)) {
-		dev_err(hba->dev, "%s: invalid ref_clk setting = %d\n",
-			 __func__, ref_clk);
-		err = -EINVAL;
-		goto out;
-	}
-
-	if (ref_clk == hba->dev_ref_clk_freq)
-		goto out; /* nothing to update */
-
-	err = ufshcd_query_attr_retry(hba, UPIU_QUERY_OPCODE_WRITE_ATTR,
-			QUERY_ATTR_IDN_REF_CLK_FREQ, 0, 0,
-			&hba->dev_ref_clk_freq);
-
-	if (err)
-		dev_err(hba->dev, "%s: bRefClkFreq setting to %s failed\n",
-			__func__, ref_clk_freqs[hba->dev_ref_clk_freq]);
-	else
-		/*
-		 * It is good to print this out here to debug any later failures
-		 * related to gear switch.
-		 */
-		dev_info(hba->dev, "%s: bRefClkFreq setting to %s succeeded\n",
-			__func__, ref_clk_freqs[hba->dev_ref_clk_freq]);
-
-out:
-	return err;
-}
-
-static int ufs_read_device_desc_data(struct ufs_hba *hba)
-{
-	int err;
-	u8 *desc_buf = NULL;
-
-	if (hba->desc_size.dev_desc) {
-		desc_buf = kmalloc(hba->desc_size.dev_desc, GFP_KERNEL);
-		if (!desc_buf) {
-			err = -ENOMEM;
-			dev_err(hba->dev,
-				"%s: Failed to allocate desc_buf\n", __func__);
-			return err;
-		}
-	}
-	err = ufshcd_read_device_desc(hba, desc_buf, hba->desc_size.dev_desc);
-	if (err)
-		return err;
-
-	/*
-	 * getting vendor (manufacturerID) and Bank Index in big endian
-	 * format
-	 */
-	hba->dev_info.w_manufacturer_id =
-		desc_buf[DEVICE_DESC_PARAM_MANF_ID] << 8 |
-		desc_buf[DEVICE_DESC_PARAM_MANF_ID + 1];
-	hba->dev_info.b_device_sub_class =
-		desc_buf[DEVICE_DESC_PARAM_DEVICE_SUB_CLASS];
-	hba->dev_info.i_product_name = desc_buf[DEVICE_DESC_PARAM_PRDCT_NAME];
-
-	return 0;
-}
-
 static void ufshcd_init_desc_sizes(struct ufs_hba *hba)
 {
 	int err;
@@ -7986,6 +7901,9 @@ static int ufshcd_probe_hba(struct ufs_hba *hba)
 	if (ret)
 		goto out;
 
+	/* Init check for device descriptor sizes */
+	ufshcd_init_desc_sizes(hba);
+
 	ret = ufs_get_device_desc(hba, &card);
 	if (ret) {
 		dev_err(hba->dev, "%s: Failed getting device info. err = %d\n",
@@ -8034,6 +7952,7 @@ static int ufshcd_probe_hba(struct ufs_hba *hba)
 
 	/* set the state as operational after switching to desired gear */
 	hba->ufshcd_state = UFSHCD_STATE_OPERATIONAL;
+
 	/*
 	 * If we are in error handling context or in power management callbacks
 	 * context, no need to scan the host
@@ -10532,8 +10451,6 @@ int ufshcd_init(struct ufs_hba *hba, void __iomem *mmio_base, unsigned int irq)
 
 	hba->mmio_base = mmio_base;
 	hba->irq = irq;
-
-	ufshcd_init_lanes_per_dir(hba);
 
 	/* Set descriptor lengths to specification defaults */
 	ufshcd_def_desc_sizes(hba);
