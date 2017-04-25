@@ -456,7 +456,11 @@ void __hyp_text __noreturn hyp_panic(struct kvm_cpu_context *host_ctxt)
 	u64 par = read_sysreg(par_el1);
 
 	if (read_sysreg(vttbr_el2)) {
-		vcpu = host_ctxt->__hyp_running_vcpu;
+		struct kvm_vcpu *vcpu;
+		struct kvm_cpu_context *host_ctxt;
+
+		vcpu = (struct kvm_vcpu *)read_sysreg(tpidr_el2);
+		host_ctxt = kern_hyp_va(vcpu->arch.host_cpu_context);
 		__timer_save_state(vcpu);
 		__deactivate_traps(vcpu);
 		__deactivate_vm(vcpu);
