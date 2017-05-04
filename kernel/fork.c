@@ -216,9 +216,12 @@ static unsigned long *alloc_thread_stack_node(struct task_struct *tsk, int node)
 #endif
 }
 
+extern void kaiser_remove_mapping(unsigned long start_addr, unsigned long size);
 static inline void free_thread_stack(struct task_struct *tsk)
 {
-	kaiser_unmap_thread_stack(tsk->stack);
+#ifdef CONFIG_KAISER
+	kaiser_remove_mapping((unsigned long)tsk->stack, THREAD_SIZE);
+#endif
 #ifdef CONFIG_VMAP_STACK
 	if (task_stack_vm_area(tsk)) {
 		unsigned long flags;
@@ -476,6 +479,7 @@ void set_task_stack_end_magic(struct task_struct *tsk)
 	*stackend = STACK_END_MAGIC;	/* for overflow detection */
 }
 
+extern void kaiser_add_mapping(unsigned long addr, unsigned long size, unsigned long flags);
 static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 {
 	struct task_struct *tsk;
@@ -505,10 +509,9 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 	 * functions again.
 	 */
 	tsk->stack = stack;
-
-	err= kaiser_map_thread_stack(tsk->stack);
-	if (err)
-		goto free_stack;
+#ifdef CONFIG_KAISER
+	kaiser_add_mapping((unsigned long)tsk->stack, THREAD_SIZE, __PAGE_KERNEL);
+#endif
 #ifdef CONFIG_VMAP_STACK
 	tsk->stack_vm_area = stack_vm_area;
 #endif
