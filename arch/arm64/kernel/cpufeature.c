@@ -1069,6 +1069,8 @@ void __init enable_cpu_capabilities(const struct arm64_cpu_capabilities *caps)
 			 * we return.
 			 */
 			stop_machine(caps->enable, (void *)caps, cpu_online_mask);
+		}
+	}
 }
 
 /*
@@ -1170,6 +1172,14 @@ static void __init setup_feature_capabilities(void)
 {
 	update_cpu_capabilities(arm64_features, "detected feature:");
 	enable_cpu_capabilities(arm64_features);
+}
+
+DEFINE_STATIC_KEY_FALSE(arm64_const_caps_ready);
+EXPORT_SYMBOL(arm64_const_caps_ready);
+
+static void __init mark_const_caps_ready(void)
+{
+	static_branch_enable(&arm64_const_caps_ready);
 }
 
 extern const struct arm64_cpu_capabilities arm64_errata[];
