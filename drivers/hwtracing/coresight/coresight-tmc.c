@@ -621,12 +621,11 @@ static int tmc_probe(struct amba_device *adev, const struct amba_id *id)
 	} else if (drvdata->config_type == TMC_CONFIG_TYPE_ETR) {
 		desc.type = CORESIGHT_DEV_TYPE_SINK;
 		desc.ops = &tmc_etr_cs_ops;
-		desc.groups = coresight_tmc_etr_groups;
-		desc.subtype.sink_subtype = CORESIGHT_DEV_SUBTYPE_SINK_BUFFER;
-
-		drvdata->byte_cntr = byte_cntr_init(adev, drvdata);
-
-		ret = tmc_etr_bam_init(adev, drvdata);
+		/*
+		 * ETR configuration uses a 40-bit AXI master in place of
+		 * the embedded SRAM of ETB/ETF.
+		 */
+		ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(40));
 		if (ret)
 			goto out;
 	} else {
