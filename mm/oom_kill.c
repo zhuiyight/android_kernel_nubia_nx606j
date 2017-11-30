@@ -541,7 +541,7 @@ static bool __oom_reap_task_mm(struct task_struct *tsk, struct mm_struct *mm)
 		if (vma_is_anonymous(vma) || !(vma->vm_flags & VM_SHARED)) {
 			tlb_gather_mmu(&tlb, mm, vma->vm_start, vma->vm_end);
 			unmap_page_range(&tlb, vma, vma->vm_start, vma->vm_end,
-					 NULL);
+					 &details);
 			tlb_finish_mmu(&tlb, vma->vm_start, vma->vm_end);
 		}
 	}
