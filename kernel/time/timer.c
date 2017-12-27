@@ -1882,7 +1882,7 @@ int timers_prepare_cpu(unsigned int cpu)
 	return 0;
 }
 
-static void __migrate_timers(unsigned int cpu, bool remove_pinned)
+int timers_dead_cpu(unsigned int cpu)
 {
 	struct timer_base *old_base;
 	struct timer_base *new_base;
