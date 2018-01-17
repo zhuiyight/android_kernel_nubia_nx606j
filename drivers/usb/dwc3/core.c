@@ -256,11 +256,10 @@ static int dwc3_core_reset(struct dwc3 *dwc)
 
 	dwc3_writel(dwc->regs, DWC3_GUSB3PIPECTL(0), reg);
 
-	dwc3_notify_event(dwc, DWC3_CONTROLLER_RESET_EVENT);
+	phy_exit(dwc->usb3_generic_phy);
+	phy_exit(dwc->usb2_generic_phy);
 
-	dwc3_notify_event(dwc, DWC3_CONTROLLER_POST_RESET_EVENT);
-
-	return 0;
+	return -ETIMEDOUT;
 }
 
 /**
