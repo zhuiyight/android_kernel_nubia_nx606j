@@ -443,6 +443,7 @@ int f2fs_submit_page_bio(struct f2fs_io_info *fio)
 			__is_meta_io(fio) ? META_GENERIC : DATA_GENERIC))
 		return -EFAULT;
 
+	verify_block_addr(fio, fio->new_blkaddr);
 	trace_f2fs_submit_page_bio(page, fio);
 	f2fs_trace_ios(fio, 0);
 
@@ -480,7 +481,11 @@ int f2fs_submit_page_write(struct f2fs_io_info *fio)
 	u64 dun;
 	int err = 0;
 
-	f2fs_bug_on(sbi, is_read_io(fio->op));
+	io = is_read ? &sbi->read_io : &sbi->write_io[btype];
+
+	if (fio->old_blkaddr != NEW_ADDR)
+		verify_block_addr(fio, fio->old_blkaddr);
+	verify_block_addr(fio, fio->new_blkaddr);
 
 	down_write(&io->io_rwsem);
 next:
