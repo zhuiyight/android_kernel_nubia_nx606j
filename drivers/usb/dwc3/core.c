@@ -233,8 +233,10 @@ static int dwc3_core_reset(struct dwc3 *dwc)
 	int		ret;
 	u32	reg;
 
-	/* Reset PHYs */
-	usb_phy_reset(dwc->usb2_phy);
+	do {
+		reg = dwc3_readl(dwc->regs, DWC3_DCTL);
+		if (!(reg & DWC3_DCTL_CSFTRST))
+			goto done;
 
 	if (dwc->maximum_speed == USB_SPEED_SUPER)
 		usb_phy_reset(dwc->usb3_phy);
@@ -260,6 +262,17 @@ static int dwc3_core_reset(struct dwc3 *dwc)
 	phy_exit(dwc->usb2_generic_phy);
 
 	return -ETIMEDOUT;
+
+done:
+	/*
+	 * For DWC_usb31 controller, once DWC3_DCTL_CSFTRST bit is cleared,
+	 * we must wait at least 50ms before accessing the PHY domain
+	 * (synchronization delay). DWC_usb31 programming guide section 1.3.2.
+	 */
+	if (dwc3_is_usb31(dwc))
+		msleep(50);
+
+	return 0;
 }
 
 /**
