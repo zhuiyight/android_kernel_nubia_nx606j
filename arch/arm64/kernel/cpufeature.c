@@ -1068,8 +1068,6 @@ void __init enable_cpu_capabilities(const struct arm64_cpu_capabilities *caps)
 			 * we return.
 			 */
 			stop_machine(caps->enable, (void *)caps, cpu_online_mask);
-		}
-	}
 }
 
 /*
