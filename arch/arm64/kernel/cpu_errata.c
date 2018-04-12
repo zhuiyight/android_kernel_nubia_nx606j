@@ -53,12 +53,10 @@ static int cpu_enable_trap_ctr_access(void *__unused)
 DEFINE_PER_CPU_READ_MOSTLY(struct bp_hardening_data, bp_hardening_data);
 
 #ifdef CONFIG_KVM
-extern char __psci_hyp_bp_inval_start[], __psci_hyp_bp_inval_end[];
-
 static void __copy_hyp_vect_bpi(int slot, const char *hyp_vecs_start,
 				const char *hyp_vecs_end)
 {
-	void *dst = lm_alias(__bp_harden_hyp_vecs_start + slot * SZ_2K);
+	void *dst = __bp_harden_hyp_vecs_start + slot * SZ_2K;
 	int i;
 
 	for (i = 0; i < SZ_2K; i += 0x80)
@@ -96,9 +94,6 @@ static void __install_bp_hardening_cb(bp_hardening_cb_t fn,
 	spin_unlock(&bp_lock);
 }
 #else
-#define __psci_hyp_bp_inval_start	NULL
-#define __psci_hyp_bp_inval_end		NULL
-
 static void __install_bp_hardening_cb(bp_hardening_cb_t fn,
 				      const char *hyp_vecs_start,
 				      const char *hyp_vecs_end)
@@ -122,21 +117,6 @@ static void  install_bp_hardening_cb(const struct arm64_cpu_capabilities *entry,
 		return;
 
 	__install_bp_hardening_cb(fn, hyp_vecs_start, hyp_vecs_end);
-}
-
-#include <linux/psci.h>
-
-static int enable_psci_bp_hardening(void *data)
-{
-	const struct arm64_cpu_capabilities *entry = data;
-
-	if (psci_ops.get_version)
-		install_bp_hardening_cb(entry,
-				       (bp_hardening_cb_t)psci_ops.get_version,
-				       __psci_hyp_bp_inval_start,
-				       __psci_hyp_bp_inval_end);
-
-	return 0;
 }
 #endif	/* CONFIG_HARDEN_BRANCH_PREDICTOR */
 
