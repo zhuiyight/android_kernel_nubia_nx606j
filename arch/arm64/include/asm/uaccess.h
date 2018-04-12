@@ -134,109 +134,23 @@ static inline unsigned long __range_ok(unsigned long addr, unsigned long size)
 	"	.popsection\n"
 
 /*
- * User access enabling/disabling.
+ * Sanitise a uaccess pointer such that it becomes NULL if above the
+ * current addr_limit.
  */
-#ifdef CONFIG_ARM64_SW_TTBR0_PAN
-static inline void __uaccess_ttbr0_disable(void)
+#define uaccess_mask_ptr(ptr) (__typeof__(ptr))__uaccess_mask_ptr(ptr)
+static inline void __user *__uaccess_mask_ptr(const void __user *ptr)
 {
-	unsigned long ttbr;
+	void __user *safe_ptr;
 
-	ttbr = read_sysreg(ttbr1_el1);
-	/* reserved_ttbr0 placed at the end of swapper_pg_dir */
-	write_sysreg(ttbr + SWAPPER_DIR_SIZE, ttbr0_el1);
-	isb();
-	/* Set reserved ASID */
-	ttbr &= ~TTBR_ASID_MASK;
-	write_sysreg(ttbr, ttbr1_el1);
-	isb();
-}
+	asm volatile(
+	"	bics	xzr, %1, %2\n"
+	"	csel	%0, %1, xzr, eq\n"
+	: "=&r" (safe_ptr)
+	: "r" (ptr), "r" (current_thread_info()->addr_limit)
+	: "cc");
 
-static inline void __uaccess_ttbr0_enable(void)
-{
-	unsigned long flags, ttbr0, ttbr1;
-
-	/*
-	 * Disable interrupts to avoid preemption between reading the 'ttbr0'
-	 * variable and the MSR. A context switch could trigger an ASID
-	 * roll-over and an update of 'ttbr0'.
-	 */
-	local_irq_save(flags);
-	ttbr0 = current_thread_info()->ttbr0;
-
-	/* Restore active ASID */
-	ttbr1 = read_sysreg(ttbr1_el1);
-	ttbr1 |= ttbr0 & TTBR_ASID_MASK;
-	write_sysreg(ttbr1, ttbr1_el1);
-	isb();
-
-	/* Restore user page table */
-	write_sysreg(ttbr0, ttbr0_el1);
-	isb();
-	local_irq_restore(flags);
-}
-
-static inline bool uaccess_ttbr0_disable(void)
-{
-	if (!system_uses_ttbr0_pan())
-		return false;
-	__uaccess_ttbr0_disable();
-	return true;
-}
-
-static inline bool uaccess_ttbr0_enable(void)
-{
-	if (!system_uses_ttbr0_pan())
-		return false;
-	__uaccess_ttbr0_enable();
-	return true;
-}
-#else
-static inline bool uaccess_ttbr0_disable(void)
-{
-	return false;
-}
-
-static inline bool uaccess_ttbr0_enable(void)
-{
-	return false;
-}
-#endif
-
-#define __uaccess_disable(alt)						\
-do {									\
-	if (!uaccess_ttbr0_disable())					\
-		asm(ALTERNATIVE("nop", SET_PSTATE_PAN(1), alt,		\
-				CONFIG_ARM64_PAN));			\
-} while (0)
-
-#define __uaccess_enable(alt)						\
-do {									\
-	if (!uaccess_ttbr0_enable())					\
-		asm(ALTERNATIVE("nop", SET_PSTATE_PAN(0), alt,		\
-				CONFIG_ARM64_PAN));			\
-} while (0)
-
-static inline void uaccess_disable(void)
-{
-	__uaccess_disable(ARM64_HAS_PAN);
-}
-
-static inline void uaccess_enable(void)
-{
-	__uaccess_enable(ARM64_HAS_PAN);
-}
-
-/*
- * These functions are no-ops when UAO is present.
- */
-static inline void uaccess_disable_not_uao(void)
-{
-	__uaccess_disable(ARM64_ALT_PAN_NOT_UAO);
-}
-
-static inline void uaccess_enable_not_uao(void)
-{
-	__uaccess_enable(ARM64_ALT_PAN_NOT_UAO);
+	csdb();
+	return safe_ptr;
 }
 
 /*
@@ -311,7 +225,7 @@ do {									\
 	__typeof__(*(ptr)) __user *__p = (ptr);				\
 	might_fault();							\
 	access_ok(VERIFY_READ, __p, sizeof(*__p)) ?			\
-		__get_user((x), __p) :					\
+		__p = uaccess_mask_ptr(__p), __get_user((x), __p) :	\
 		((x) = 0, -EFAULT);					\
 })
 
@@ -377,7 +291,7 @@ do {									\
 	__typeof__(*(ptr)) __user *__p = (ptr);				\
 	might_fault();							\
 	access_ok(VERIFY_WRITE, __p, sizeof(*__p)) ?			\
-		__put_user((x), __p) :					\
+		__p = uaccess_mask_ptr(__p), __put_user((x), __p) :	\
 		-EFAULT;						\
 })
 
@@ -438,7 +352,7 @@ static inline unsigned long __must_check copy_in_user(void __user *to, const voi
 static inline unsigned long __must_check clear_user(void __user *to, unsigned long n)
 {
 	if (access_ok(VERIFY_WRITE, to, n))
-		n = __clear_user(to, n);
+		n = __clear_user(__uaccess_mask_ptr(to), n);
 	return n;
 }
 
