@@ -6482,10 +6482,35 @@ out:
 	return retval;
 }
 
-static int mxt_selftest_open(struct inode *inode, struct file *file)
-{
-	return 0;
-}
+static const struct dmi_system_id mxt_dmi_table[] = {
+	{
+		/* 2015 Google Pixel */
+		.ident = "Chromebook Pixel 2",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "GOOGLE"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Samus"),
+		},
+		.driver_data = samus_platform_data,
+	},
+	{
+		/* Samsung Chromebook Pro */
+		.ident = "Samsung Chromebook Pro",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Google"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Caroline"),
+		},
+		.driver_data = samus_platform_data,
+	},
+	{
+		/* Other Google Chromebooks */
+		.ident = "Chromebook",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "GOOGLE"),
+		},
+		.driver_data = chromebook_platform_data,
+	},
+	{ }
+};
 
 static ssize_t mxt_selftest_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
 {
