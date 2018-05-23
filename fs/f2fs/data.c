@@ -483,7 +483,7 @@ int f2fs_submit_page_write(struct f2fs_io_info *fio)
 
 	io = is_read ? &sbi->read_io : &sbi->write_io[btype];
 
-	if (fio->old_blkaddr != NEW_ADDR)
+	if (is_valid_blkaddr(fio->old_blkaddr))
 		verify_block_addr(fio, fio->old_blkaddr);
 	verify_block_addr(fio, fio->new_blkaddr);
 
@@ -1091,7 +1091,7 @@ next_block:
 		goto sync_out;
 	}
 
-	if (!is_valid_data_blkaddr(sbi, blkaddr)) {
+	if (!is_valid_blkaddr(blkaddr)) {
 		if (create) {
 			if (unlikely(f2fs_cp_error(sbi))) {
 				err = -EIO;
@@ -1793,19 +1793,11 @@ got_it:
 	 * If current allocation needs SSR,
 	 * it had better in-place writes for updated data.
 	 */
-	if (ipu_force || (is_valid_data_blkaddr(fio->sbi, fio->old_blkaddr) &&
-					need_inplace_update(fio))) {
-		err = encrypt_one_page(fio);
-		if (err)
-			goto out_writepage;
-
-		set_page_writeback(page);
-		ClearPageError(page);
-		f2fs_put_dnode(&dn);
-		if (fio->need_lock == LOCK_REQ)
-			f2fs_unlock_op(fio->sbi);
-		err = rewrite_data_page(fio);
-		trace_f2fs_do_write_data_page(fio->page, IPU);
+	if (unlikely(is_valid_blkaddr(fio->old_blkaddr) &&
+			!is_cold_data(page) &&
+			!IS_ATOMIC_WRITTEN_PAGE(page) &&
+			need_inplace_update(inode))) {
+		rewrite_data_page(fio);
 		set_inode_flag(inode, FI_UPDATE_WRITE);
 		return err;
 	}
