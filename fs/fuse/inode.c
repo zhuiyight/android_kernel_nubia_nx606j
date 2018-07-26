@@ -402,11 +402,6 @@ static void fuse_put_super(struct super_block *sb)
 {
 	struct fuse_conn *fc = get_fuse_conn_super(sb);
 
-	fuse_send_destroy(fc);
-
-	fuse_abort_conn(fc);
-	fuse_wait_aborted(fc);
-
 	mutex_lock(&fuse_mutex);
 	list_del(&fc->entry);
 	fuse_ctl_remove_conn(fc);
