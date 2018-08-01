@@ -426,6 +426,13 @@ static loff_t f2fs_seek_block(struct file *file, loff_t offset, int whence)
 				goto fail;
 			}
 
+			if (__is_valid_data_blkaddr(blkaddr) &&
+				!f2fs_is_valid_blkaddr(F2FS_I_SB(inode),
+						blkaddr, DATA_GENERIC)) {
+				f2fs_put_dnode(&dn);
+				goto fail;
+			}
+
 			if (__found_offset(F2FS_I_SB(inode), blkaddr, dirty,
 							pgofs, whence)) {
 				f2fs_put_dnode(&dn);
