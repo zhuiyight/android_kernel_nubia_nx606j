@@ -89,26 +89,6 @@ ENTRY(cpu_v7_dcache_clean_area)
 	ret	lr
 ENDPROC(cpu_v7_dcache_clean_area)
 
-#ifdef CONFIG_ARM_PSCI
-	.arch_extension sec
-ENTRY(cpu_v7_smc_switch_mm)
-	stmfd	sp!, {r0 - r3}
-	movw	r0, #:lower16:ARM_SMCCC_ARCH_WORKAROUND_1
-	movt	r0, #:upper16:ARM_SMCCC_ARCH_WORKAROUND_1
-	smc	#0
-	ldmfd	sp!, {r0 - r3}
-	b	cpu_v7_switch_mm
-ENDPROC(cpu_v7_smc_switch_mm)
-	.arch_extension virt
-ENTRY(cpu_v7_hvc_switch_mm)
-	stmfd	sp!, {r0 - r3}
-	movw	r0, #:lower16:ARM_SMCCC_ARCH_WORKAROUND_1
-	movt	r0, #:upper16:ARM_SMCCC_ARCH_WORKAROUND_1
-	hvc	#0
-	ldmfd	sp!, {r0 - r3}
-	b	cpu_v7_switch_mm
-ENDPROC(cpu_v7_hvc_switch_mm)
-#endif
 ENTRY(cpu_v7_iciallu_switch_mm)
 	mov	r3, #0
 	mcr	p15, 0, r3, c7, c5, 0		@ ICIALLU
@@ -551,7 +531,7 @@ __v7_setup_stack:
 	.weak cpu_v7_bugs_init
 
 	@ define struct processor (see <asm/proc-fns.h> and proc-macros.S)
-	define_processor_functions v7, dabort=v7_early_abort, pabort=v7_pabort, suspend=1, bugs=cpu_v7_bugs_init
+	define_processor_functions v7, dabort=v7_early_abort, pabort=v7_pabort, suspend=1
 
 #ifdef CONFIG_HARDEN_BRANCH_PREDICTOR
 	@ generic v7 bpiall on context switch
@@ -566,7 +546,7 @@ __v7_setup_stack:
 	globl_equ	cpu_v7_bpiall_do_suspend,	cpu_v7_do_suspend
 	globl_equ	cpu_v7_bpiall_do_resume,	cpu_v7_do_resume
 #endif
-	define_processor_functions v7_bpiall, dabort=v7_early_abort, pabort=v7_pabort, suspend=1, bugs=cpu_v7_bugs_init
+	define_processor_functions v7_bpiall, dabort=v7_early_abort, pabort=v7_pabort, suspend=1
 
 #define HARDENED_BPIALL_PROCESSOR_FUNCTIONS v7_bpiall_processor_functions
 #else
@@ -587,7 +567,7 @@ __v7_setup_stack:
 	globl_equ	cpu_ca8_do_suspend,	cpu_v7_do_suspend
 	globl_equ	cpu_ca8_do_resume,	cpu_v7_do_resume
 #endif
-	define_processor_functions ca8, dabort=v7_early_abort, pabort=v7_pabort, suspend=1, bugs=cpu_v7_ca8_ibe
+	define_processor_functions ca8, dabort=v7_early_abort, pabort=v7_pabort, suspend=1
 
 	@ Cortex-A9 - needs more registers preserved across suspend/resume
 	@ and bpiall switch_mm for hardening
@@ -602,7 +582,7 @@ __v7_setup_stack:
 	globl_equ	cpu_ca9mp_switch_mm,	cpu_v7_switch_mm
 #endif
 	globl_equ	cpu_ca9mp_set_pte_ext,	cpu_v7_set_pte_ext
-	define_processor_functions ca9mp, dabort=v7_early_abort, pabort=v7_pabort, suspend=1, bugs=cpu_v7_bugs_init
+	define_processor_functions ca9mp, dabort=v7_early_abort, pabort=v7_pabort, suspend=1
 #endif
 
 	@ Cortex-A15 - needs iciallu switch_mm for hardening
@@ -620,7 +600,7 @@ __v7_setup_stack:
 	globl_equ	cpu_ca15_suspend_size,	cpu_v7_suspend_size
 	globl_equ	cpu_ca15_do_suspend,	cpu_v7_do_suspend
 	globl_equ	cpu_ca15_do_resume,	cpu_v7_do_resume
-	define_processor_functions ca15, dabort=v7_early_abort, pabort=v7_pabort, suspend=1, bugs=cpu_v7_ca15_ibe
+	define_processor_functions ca15, dabort=v7_early_abort, pabort=v7_pabort, suspend=1
 #ifdef CONFIG_CPU_PJ4B
 	define_processor_functions pj4b, dabort=v7_early_abort, pabort=v7_pabort, suspend=1
 #endif
