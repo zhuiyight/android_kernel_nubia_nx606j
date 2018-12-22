@@ -19,8 +19,8 @@
 #include <linux/mm.h>
 #include <linux/list.h>
 #include <linux/mount.h>
-#include <../mount.h>
 #include <linux/mtd/mtd.h>
+#include "./mount.h"
 #include "sdcardfs.h"
 #include "linux/jiffies.h"
 
