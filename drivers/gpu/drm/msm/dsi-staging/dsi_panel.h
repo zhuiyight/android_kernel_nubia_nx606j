@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2018 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -35,6 +36,11 @@
 #define DSI_CMD_PPS_SIZE 135
 
 #define DSI_MODE_MAX 5
+#define BUF_LEN_MAX    256
+
+#define PANEL_BL_INFO_NUM    4
+
+#define HIST_BL_OFFSET_LIMIT 48
 
 enum dsi_panel_rotation {
 	DSI_PANEL_ROTATE_NONE = 0,
@@ -51,6 +57,11 @@ enum dsi_backlight_type {
 	DSI_BACKLIGHT_MAX,
 };
 
+enum bl_update_flag {
+	BL_UPDATE_DELAY_UNTIL_FIRST_FRAME,
+	BL_UPDATE_NONE,
+};
+
 enum {
 	MODE_GPIO_NOT_VALID = 0,
 	MODE_SEL_DUAL_PORT,
@@ -65,10 +76,18 @@ enum dsi_dms_mode {
 };
 
 struct dsi_dfps_capabilities {
-	bool dfps_support;
 	enum dsi_dfps_type type;
 	u32 min_refresh_rate;
 	u32 max_refresh_rate;
+	u32 *dfps_list;
+	u32 dfps_list_len;
+	bool dfps_support;
+};
+
+struct dsi_dyn_clk_caps {
+	bool dyn_clk_support;
+	u32 *bit_clk_list;
+	u32 bit_clk_list_len;
 };
 
 struct dsi_pinctrl_info {
@@ -85,6 +104,7 @@ struct dsi_panel_phy_props {
 
 struct dsi_backlight_config {
 	enum dsi_backlight_type type;
+	enum bl_update_flag bl_update;
 
 	u32 bl_min_level;
 	u32 bl_max_level;
@@ -92,16 +112,15 @@ struct dsi_backlight_config {
 	u32 bl_level;
 	u32 bl_scale;
 	u32 bl_scale_ad;
-#ifdef CONFIG_NUBIA_LCD_BACKLIGHT_CURVE
-        uint32_t backlight_curve[256];
-#endif
 
 	int en_gpio;
+	bool dcs_type_ss;
 	/* PWM params */
 	bool pwm_pmi_control;
 	u32 pwm_pmic_bank;
 	u32 pwm_period_usecs;
 	int pwm_gpio;
+	int ss_panel_id;
 
 	/* WLED params */
 	struct led_trigger *wled;
@@ -113,28 +132,11 @@ struct dsi_reset_seq {
 	u32 sleep_ms;
 };
 
-
-struct dsi_switch_panel_config {
-	
-	int sub_lcd_reset_gpio;
-	int lcd_switch_en_gpio;
-	int lcd_switch_gpio;
-	int sub_lcd_power_1p8_gpio;
-	int sub_tp_reset_gpio;
-};
-
-
-
-
 struct dsi_panel_reset_config {
 	struct dsi_reset_seq *sequence;
 	u32 count;
 
 	int reset_gpio;
-#ifdef CONFIG_NUBIA_SWITCH_LCD
-	int sub_tp_reset_gpio;
-	int sub_lcd_reset_gpio;
-#endif
 	int disp_en_gpio;
 	int lcd_mode_sel_gpio;
 	u32 mode_sel_state;
@@ -149,6 +151,7 @@ enum esd_check_status_mode {
 
 struct drm_panel_esd_config {
 	bool esd_enabled;
+	bool cmd_channel;
 
 	enum esd_check_status_mode status_mode;
 	struct dsi_panel_cmd_set status_cmd;
@@ -158,10 +161,28 @@ struct drm_panel_esd_config {
 	u8 *return_buf;
 	u8 *status_buf;
 	u32 groups;
+	int esd_err_irq_gpio;
+	int esd_err_irq;
+	int esd_err_irq_flags;
+};
+
+struct dsi_read_config {
+	bool enabled;
+	struct dsi_panel_cmd_set read_cmd;
+	u32 cmds_rlen;
+	u32 valid_bits;
+	u8 rbuf[64];
+};
+
+enum dsi_panel_type {
+	DSI_PANEL = 0,
+	EXT_BRIDGE,
+	DSI_PANEL_TYPE_MAX,
 };
 
 struct dsi_panel {
 	const char *name;
+	enum dsi_panel_type type;
 	struct device_node *panel_of_node;
 	struct mipi_dsi_device mipi_device;
 
@@ -176,17 +197,14 @@ struct dsi_panel {
 	enum dsi_op_mode panel_mode;
 
 	struct dsi_dfps_capabilities dfps_caps;
+	struct dsi_dyn_clk_caps dyn_clk_caps;
 	struct dsi_panel_phy_props phy_props;
 
 	struct dsi_display_mode *cur_mode;
 	u32 num_timing_nodes;
 
 	struct dsi_regulator_info power_info;
-#ifdef CONFIG_NUBIA_SWITCH_LCD
-	struct dsi_regulator_info sub_panel_power_info;
-#endif
 	struct dsi_backlight_config bl_config;
-	struct dsi_switch_panel_config switch_config;
 	struct dsi_panel_reset_config reset_config;
 	struct dsi_pinctrl_info pinctrl;
 	struct drm_panel_hdr_properties hdr_props;
@@ -201,10 +219,40 @@ struct dsi_panel {
 	bool panel_initialized;
 	bool te_using_watchdog_timer;
 
+	bool dispparam_enabled;
+	bool on_cmds_tuning;
+	bool panel_reset_skip;
+	u32 skip_dimmingon;
+
 	char dsc_pps_cmd[DSI_CMD_PPS_SIZE];
 	enum dsi_dms_mode dms_mode;
 
 	bool sync_broadcast_en;
+
+	u32 panel_on_dimming_delay;
+	u32 last_bl_lvl;
+	struct delayed_work cmds_work;
+
+	bool dsi_panel_off_mode;
+	/* check disable cabc when panel off */
+	bool onoff_mode_enabled;
+	bool disable_cabc;
+	bool off_keep_reset;
+	struct dsi_read_config brightness_cmds;
+	struct dsi_read_config xy_coordinate_cmds;
+	struct dsi_read_config max_luminance_cmds;
+	struct dsi_read_config max_luminance_valid_cmds;
+	struct dsi_read_config panel_ddic_id_cmds;
+	u8 panel_read_data[BUF_LEN_MAX];
+	u32 panel_bl_info[PANEL_BL_INFO_NUM];
+
+	u32 hist_bl_offset;
+
+	s32 backlight_delta;
+	bool fod_hbm_enabled;
+	bool in_aod;
+	u32 doze_backlight_threshold;
+	ktime_t fod_hbm_off_time;
 };
 
 static inline bool dsi_panel_ulps_feature_enabled(struct dsi_panel *panel)
@@ -229,7 +277,8 @@ static inline void dsi_panel_release_panel_lock(struct dsi_panel *panel)
 
 struct dsi_panel *dsi_panel_get(struct device *parent,
 				struct device_node *of_node,
-				int topology_override);
+				int topology_override,
+				enum dsi_panel_type type);
 
 int dsi_panel_trigger_esd_attack(struct dsi_panel *panel);
 
@@ -285,6 +334,8 @@ int dsi_panel_post_unprepare(struct dsi_panel *panel);
 
 int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl);
 
+int dsi_panel_enable_doze_backlight(struct dsi_panel *panel, u32 bl_lvl);
+
 int dsi_panel_update_pps(struct dsi_panel *panel);
 
 int dsi_panel_send_roi_dcs(struct dsi_panel *panel, int ctrl_idx,
@@ -295,11 +346,14 @@ int dsi_panel_switch(struct dsi_panel *panel);
 int dsi_panel_post_switch(struct dsi_panel *panel);
 
 void dsi_dsc_pclk_param_calc(struct msm_display_dsc_info *dsc, int intf_width);
-#ifdef CONFIG_NUBIA_LCD_DISP_PREFERENCE
-int nubia_dsi_panel_cabc(struct dsi_panel *panel, uint32_t cabc_modes);
-#endif
+
+struct dsi_panel *dsi_panel_ext_bridge_get(struct device *parent,
+				struct device_node *of_node,
+				int topology_override);
 
 int dsi_panel_parse_esd_reg_read_configs(struct dsi_panel *panel,
 				struct device_node *of_node);
+
+void dsi_panel_ext_bridge_put(struct dsi_panel *panel);
 
 #endif /* _DSI_PANEL_H_ */

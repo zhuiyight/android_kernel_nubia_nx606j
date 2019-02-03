@@ -34,6 +34,7 @@
 #include <linux/ctype.h>
 #include <linux/slab.h>
 #include <linux/of.h>
+#include <linux/dma-mapping.h>
 #include <sound/core.h>
 #include <sound/jack.h>
 #include <sound/pcm.h>
@@ -1044,17 +1045,7 @@ static int soc_bind_dai_link(struct snd_soc_card *card,
 		if (!codec_dais[i]) {
 			dev_err(card->dev, "ASoC: CODEC DAI %s not registered\n",
 				codecs[i].dai_name);
-#ifdef CONFIG_SND_SOC_TFA9894
-			if (!strcmp(codecs[i].dai_name, "tfa98xx-aif-1-34")){
-				dev_err(card->dev, "ASoC: No NXP smartpa\n");
-				return 0;
-			} else {
-				dev_err(card->dev, "ASoC: %s not registered\n", codecs[i].dai_name);
-				goto _err_defer;
-			}
-#else
-				goto _err_defer;
-#endif
+			goto _err_defer;
 		}
 	}
 
@@ -1082,7 +1073,8 @@ static int soc_bind_dai_link(struct snd_soc_card *card,
 	}
 	if (!rtd->platform) {
 		dev_err(card->dev, "ASoC: platform %s not registered\n",
-			dai_link->platform_name);
+			((platform_name) ? platform_name :
+			  dai_link->platform_of_node->full_name));
 		goto _err_defer;
 	}
 
@@ -2045,6 +2037,7 @@ static int snd_soc_instantiate_card(struct snd_soc_card *card)
 	}
 
 	card->instantiated = 1;
+	dapm_mark_endpoints_dirty(card);
 	snd_soc_dapm_sync(&card->dapm);
 	mutex_unlock(&card->mutex);
 	mutex_unlock(&client_mutex);
@@ -2674,6 +2667,8 @@ int snd_soc_register_card(struct snd_soc_card *card)
 	ret = snd_soc_instantiate_card(card);
 	if (ret != 0)
 		return ret;
+
+	arch_setup_dma_ops(card->dev, 0, 0, NULL, 0);
 
 	/* deactivate pins to sleep state */
 	list_for_each_entry(rtd, &card->rtd_list, list)  {

@@ -119,6 +119,8 @@ Optional properties:
 			  2: Flash strobe is used for LED1; GPIO9 is used for LED2; GPIO10 is used for LED3
 - switchX-supply		: phandle of the regulator that needs to be used
 				  as a supply for flash switch_X device.
+- qcom,bst-pwm-ovrhd-uv		: Charger flash VPH overhead. Applicable for PMI632 only.
+				  Supported values (in mV) are: 300, 400, 500, 600. Default is 300.
 
 Child node: Contains settings for each individual LED. Each LED channel needs a flash node and
 torch node for itself, and an individual switch node to serve as an overall switch.
@@ -248,6 +250,23 @@ Example:
 			qcom,default-led-trigger =
 						"flash2_trigger";
 			qcom,id = <2>;
+			qcom,current-ma = <500>;
+			qcom,duration-ms = <1280>;
+			qcom,ires-ua = <12500>;
+			qcom,hdrm-voltage-mv = <325>;
+			qcom,hdrm-vol-hi-lo-win-mv = <100>;
+			pinctrl-names = "led_enable","led_disable";
+			pinctrl-0 = <&led_enable>;
+			pinctrl-1 = <&led_disable>;
+		};
+
+		pmi8998_flashlight: qcom,flashlight {
+			label = "flash";
+			qcom,led-name = "flashlight";
+			qcom,max-current = <750>;
+			qcom,default-led-trigger =
+						"flashlight_trigger";
+			qcom,id = <3>;
 			qcom,current-ma = <500>;
 			qcom,duration-ms = <1280>;
 			qcom,ires-ua = <12500>;

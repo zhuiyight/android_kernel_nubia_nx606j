@@ -10,7 +10,7 @@
  * GNU General Public License for more details.
  */
 
-#define pr_fmt(fmt) "[Qpnp-pin]%s,%d: " fmt, __func__,__LINE__
+#define pr_fmt(fmt) "%s: " fmt, __func__
 
 #include <linux/interrupt.h>
 #include <linux/regmap.h>
@@ -1088,7 +1088,6 @@ static int qpnp_pin_apply_config(struct qpnp_pin_chip *q_chip,
 				Q_REG_DTEST_SEL_SHIFT,
 				Q_REG_DTEST_SEL_MASK);
 	}
-    pr_err("run to \n");
 
 	of_property_read_u32(node, "qcom,mode",
 		&param.mode);
@@ -1104,7 +1103,6 @@ static int qpnp_pin_apply_config(struct qpnp_pin_chip *q_chip,
 		&param.out_strength);
 	of_property_read_u32(node, "qcom,src-sel",
 		&param.src_sel);
-	pr_err("run to param.src_sel:%d\n",param.src_sel);
 	of_property_read_u32(node, "qcom,master-en",
 		&param.master_en);
 	of_property_read_u32(node, "qcom,aout-ref",

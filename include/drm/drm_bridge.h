@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2016 Intel Corporation
+ * Copyright (C) 2018 XiaoMi, Inc.
  *
  * Permission to use, copy, modify, distribute, and sell this software and its
  * documentation for any purpose is hereby granted without fee, provided that
@@ -57,6 +58,23 @@ struct drm_bridge_funcs {
 	 * The detach callback is optional.
 	 */
 	void (*detach)(struct drm_bridge *bridge);
+
+	/**
+	 * @connector_init:
+	 *
+	 * This callback is used to init the connector from bridge side. In some
+	 * cases connector and bridge are created in different modules, and the
+	 * connector ops might need extra info from bridge. This callback offers
+	 * the opportunity to overwrite connector's behavior in external bridge.
+	 *
+	 * The connector_init callback is optional.
+	 *
+	 * RETURNS:
+	 *
+	 * Zero on success, error code on failure.
+	 */
+	int (*connector_init)(struct drm_bridge *bridge,
+				struct drm_connector *connector);
 
 	/**
 	 * @mode_fixup:
@@ -173,6 +191,10 @@ struct drm_bridge_funcs {
 	 * The enable callback is optional.
 	 */
 	void (*enable)(struct drm_bridge *bridge);
+
+	void (*disp_param_set)(struct drm_bridge *bridge, int cmd);
+	int (*disp_get_panel_info)(struct drm_bridge *bridge, char *name);
+	ssize_t (*disp_param_get)(struct drm_bridge *bridge, char *buf);
 };
 
 /**
@@ -196,6 +218,8 @@ struct drm_bridge {
 
 	const struct drm_bridge_funcs *funcs;
 	void *driver_private;
+	struct mutex lock;
+	bool is_dsi_drm_bridge;
 };
 
 int drm_bridge_add(struct drm_bridge *bridge);
@@ -214,5 +238,8 @@ void drm_bridge_mode_set(struct drm_bridge *bridge,
 			struct drm_display_mode *adjusted_mode);
 void drm_bridge_pre_enable(struct drm_bridge *bridge);
 void drm_bridge_enable(struct drm_bridge *bridge);
+int dsi_bridge_interface_enable(int timeout);
+int drm_bridge_connector_init(struct drm_bridge *bridge,
+	struct drm_connector *connector);
 
 #endif

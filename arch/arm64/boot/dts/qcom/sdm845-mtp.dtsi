@@ -13,9 +13,11 @@
 #include <dt-bindings/gpio/gpio.h>
 #include "sdm845-pmic-overlay.dtsi"
 #include "sdm845-pinctrl-overlay.dtsi"
-//#include "sdm845-camera-sensor-mtp.dtsi"
-#include NUBIA_CAMERA_OVERWRITE_DTSI_FILE
+#include "sdm845-camera-sensor-mtp.dtsi"
+
+&qupv3_se10_i2c {
 #include "smb1355.dtsi"
+};
 
 &vendor {
 	bluetooth: bt_wcn3990 {
@@ -93,7 +95,7 @@
 	qcom,mdss-dsi-bl-min-level = <1>;
 	qcom,mdss-dsi-bl-max-level = <4095>;
 	qcom,mdss-dsi-mode-sel-gpio-state = "dual_port";
-	//qcom,panel-mode-gpio = <&tlmm 52 0>;
+	qcom,panel-mode-gpio = <&tlmm 52 0>;
 	qcom,platform-reset-gpio = <&tlmm 6 0>;
 };
 
@@ -103,18 +105,18 @@
 	qcom,mdss-dsi-bl-min-level = <1>;
 	qcom,mdss-dsi-bl-max-level = <4095>;
 	qcom,mdss-dsi-mode-sel-gpio-state = "dual_port";
-       //qcom,panel-mode-gpio = <&tlmm 52 0>;
+	qcom,panel-mode-gpio = <&tlmm 52 0>;
 	qcom,platform-reset-gpio = <&tlmm 6 0>;
 	qcom,platform-te-gpio = <&tlmm 10 0>;
 };
 
 &dsi_nt35597_truly_dsc_video {
 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
-	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
 	qcom,mdss-dsi-bl-min-level = <1>;
 	qcom,mdss-dsi-bl-max-level = <4095>;
 	qcom,mdss-dsi-mode-sel-gpio-state = "single_port";
-	//qcom,panel-mode-gpio = <&tlmm 52 0>;
+	qcom,panel-mode-gpio = <&tlmm 52 0>;
 	qcom,platform-reset-gpio = <&tlmm 6 0>;
 };
 
@@ -124,7 +126,7 @@
 	qcom,mdss-dsi-bl-min-level = <1>;
 	qcom,mdss-dsi-bl-max-level = <4095>;
 	qcom,mdss-dsi-mode-sel-gpio-state = "single_port";
-	//qcom,panel-mode-gpio = <&tlmm 52 0>;
+	qcom,panel-mode-gpio = <&tlmm 52 0>;
 	qcom,platform-reset-gpio = <&tlmm 6 0>;
 	qcom,platform-te-gpio = <&tlmm 10 0>;
 };
@@ -192,8 +194,7 @@
 
 &pmi8998_wled {
 	status = "okay";
-	qcom,led-strings-list = [00 01 02];
-	qcom,fs-curr-ua = <20000>;
+	qcom,led-strings-list = [01 02];
 };
 
 &pmi8998_haptics {
@@ -329,28 +330,10 @@
 			     &nfc_clk_default>;
 		pinctrl-1 = <&nfc_int_suspend &nfc_enable_suspend>;
 	};
-
-	tas2555@4C {
-		compatible = "ti,tas2555";
-		reg = <0x4C>;
-		ti,cdc-reset-gpio = <&tlmm 23 0x00>;
-	};
-
-	tfa98xx@34 {
-        status = "ok";
-        compatible = "nxp,tfa98xx";
-        reg =<0x34>;
-        reset-gpio = <&tlmm 23 0x00>;
-        irq-gpio = <&tlmm 129 0x00>;
-    };
 };
 
 &qupv3_se10_i2c {
 	status = "ok";
-	nubia@39 {
-		compatible = "nubia,virtual_proximity";
-		reg = <0x39>;
-	};
 };
 
 &qupv3_se6_4uart {
@@ -358,20 +341,11 @@
 };
 
 &usb1 {
-	status = "okay";
 	extcon = <&extcon_usb1>;
-};
-
-&qusb_phy1 {
-	status = "okay";
 };
 
 &ext_5v_boost {
 	status = "ok";
-};
-
-&usb_qmp_phy {
-	status = "okay";
 };
 
 &pm8998_vadc {

@@ -79,10 +79,9 @@ static struct page **get_pages_vram(struct drm_gem_object *obj,
 static struct page **get_pages(struct drm_gem_object *obj)
 {
 	struct msm_gem_object *msm_obj = to_msm_bo(obj);
-	
-	if (obj->import_attach)
-    return msm_obj->pages;
 
+	if (obj->import_attach)
+		return msm_obj->pages;
 
 	if (!msm_obj->pages) {
 		struct drm_device *dev = obj->dev;
@@ -100,13 +99,16 @@ static struct page **get_pages(struct drm_gem_object *obj)
 			return p;
 		}
 
+		msm_obj->pages = p;
+
 		msm_obj->sgt = drm_prime_pages_to_sg(p, npages);
 		if (IS_ERR(msm_obj->sgt)) {
-			dev_err(dev->dev, "failed to allocate sgt\n");
-			return ERR_CAST(msm_obj->sgt);
-		}
+			void *ptr = ERR_CAST(msm_obj->sgt);
 
-		msm_obj->pages = p;
+			dev_err(dev->dev, "failed to allocate sgt\n");
+			msm_obj->sgt = NULL;
+			return ptr;
+		}
 
 		/*
 		 * Make sure to flush the CPU cache for newly allocated memory
@@ -125,8 +127,10 @@ static void put_pages(struct drm_gem_object *obj)
 	struct msm_gem_object *msm_obj = to_msm_bo(obj);
 
 	if (msm_obj->pages) {
-		sg_free_table(msm_obj->sgt);
-		kfree(msm_obj->sgt);
+		if (msm_obj->sgt) {
+			sg_free_table(msm_obj->sgt);
+			kfree(msm_obj->sgt);
+		}
 
 		if (use_pages(obj))
 			drm_gem_put_pages(obj, msm_obj->pages, true, false);
@@ -252,7 +256,7 @@ int msm_gem_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 
 	pfn = page_to_pfn(pages[pgoff]);
 
-	VERB("Inserting %p pfn %lx, pa %lx", vmf->virtual_address,
+	VERB("Inserting %pK pfn %lx, pa %lx", vmf->virtual_address,
 			pfn, pfn << PAGE_SHIFT);
 
 	ret = vm_insert_mixed(vma, (unsigned long)vmf->virtual_address,
@@ -427,7 +431,7 @@ int msm_gem_get_iova_locked(struct drm_gem_object *obj,
 
 	if (!ret && domain) {
 		*iova = domain->iova;
-		if (aspace && aspace->domain_attached)
+		if (aspace && !msm_obj->in_active_list)
 			msm_gem_add_obj_to_aspace_active_list(aspace, obj);
 	} else {
 		obj_remove_domain(domain);
@@ -571,10 +575,13 @@ void *msm_gem_get_vaddr_locked(struct drm_gem_object *obj)
 		struct page **pages = get_pages(obj);
 		if (IS_ERR(pages))
 			return ERR_CAST(pages);
-          if (obj->import_attach)
-               msm_obj->vaddr = dma_buf_vmap(obj->import_attach->dmabuf);
-            else
-               msm_obj->vaddr = vmap(pages, obj->size >> PAGE_SHIFT,VM_MAP, pgprot_writecombine(PAGE_KERNEL));
+		if (obj->import_attach)
+			msm_obj->vaddr = dma_buf_vmap(
+				      obj->import_attach->dmabuf);
+		else
+			msm_obj->vaddr = vmap(pages, obj->size >> PAGE_SHIFT,
+				VM_MAP, pgprot_writecombine(PAGE_KERNEL));
+
 		if (msm_obj->vaddr == NULL)
 			return ERR_PTR(-ENOMEM);
 	}
@@ -661,9 +668,9 @@ void msm_gem_vunmap(struct drm_gem_object *obj)
 		return;
 
 	if (obj->import_attach)
-       dma_buf_vunmap(obj->import_attach->dmabuf, msm_obj->vaddr);
-    else
-         vunmap(msm_obj->vaddr);
+		dma_buf_vunmap(obj->import_attach->dmabuf, msm_obj->vaddr);
+	else
+		vunmap(msm_obj->vaddr);
 
 	msm_obj->vaddr = NULL;
 }
@@ -804,7 +811,7 @@ void msm_gem_describe(struct drm_gem_object *obj, struct seq_file *m)
 		break;
 	}
 
-	seq_printf(m, "%08x: %c %2d (%2d) %08llx %p %zu%s\n",
+	seq_printf(m, "%08x: %c %2d (%2d) %08llx %pK %zu%s\n",
 
 			msm_obj->flags, is_active(msm_obj) ? 'A' : 'I',
 			obj->name, obj->refcount.refcount.counter,
@@ -973,6 +980,7 @@ static int msm_gem_new_impl(struct drm_device *dev,
 	INIT_LIST_HEAD(&msm_obj->domains);
 	INIT_LIST_HEAD(&msm_obj->iova_list);
 	msm_obj->aspace = NULL;
+	msm_obj->in_active_list = false;
 
 	list_add_tail(&msm_obj->mm_list, &priv->inactive_list);
 
@@ -1037,11 +1045,10 @@ struct drm_gem_object *msm_gem_import(struct drm_device *dev,
 
 	drm_gem_private_object_init(dev, obj, size);
 
-
 	msm_obj = to_msm_bo(obj);
 	msm_obj->sgt = sgt;
+	msm_obj->pages = NULL;
 
-    msm_obj->pages = NULL;
 	return obj;
 
 fail:

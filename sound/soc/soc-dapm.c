@@ -427,17 +427,20 @@ err_data:
 static void dapm_kcontrol_free(struct snd_kcontrol *kctl)
 {
 	struct dapm_kcontrol_data *data = snd_kcontrol_chip(kctl);
+
+	list_del(&data->paths);
 	kfree(data->wlist);
 	kfree(data);
 }
 
-static struct snd_soc_dapm_widget_list *dapm_kcontrol_get_wlist(
+struct snd_soc_dapm_widget_list *dapm_kcontrol_get_wlist(
 	const struct snd_kcontrol *kcontrol)
 {
 	struct dapm_kcontrol_data *data = snd_kcontrol_chip(kcontrol);
 
 	return data->wlist;
 }
+EXPORT_SYMBOL(dapm_kcontrol_get_wlist);
 
 static int dapm_kcontrol_add_widget(struct snd_kcontrol *kcontrol,
 	struct snd_soc_dapm_widget *widget)
@@ -3924,6 +3927,13 @@ int snd_soc_dapm_link_dai_widgets(struct snd_soc_card *card)
 		case snd_soc_dapm_dai_out:
 			break;
 		default:
+			continue;
+		}
+
+		/* let users know there is no DAI to link */
+		if (!dai_w->priv) {
+			dev_dbg(card->dev, "dai widget %s has no DAI\n",
+				dai_w->name);
 			continue;
 		}
 

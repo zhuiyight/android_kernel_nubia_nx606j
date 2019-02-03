@@ -347,7 +347,9 @@ static int ext4_ioctl_setproject(struct file *filp, __u32 projid)
 	}
 	brelse(iloc.bh);
 
-	dquot_initialize(inode);
+	err = dquot_initialize(inode);
+	if (err)
+		return err;
 
 	handle = ext4_journal_start(inode, EXT4_HT_QUOTA,
 		EXT4_QUOTA_INIT_BLOCKS(sb) +
@@ -774,6 +776,8 @@ resizefs_out:
 		return ext4_ext_precache(inode);
 
 	case EXT4_IOC_SET_ENCRYPTION_POLICY:
+//		if (!ext4_has_feature_encrypt(sb))
+//			return -EOPNOTSUPP;
 		return fscrypt_ioctl_set_policy(filp, (const void __user *)arg);
 
 	case EXT4_IOC_GET_ENCRYPTION_PWSALT: {

@@ -32,6 +32,9 @@ KASAN_SANITIZE_kcov.o := n
 # cond_syscall is currently not LTO compatible
 CFLAGS_sys_ni.o = $(DISABLE_LTO)
 
+# Don't instrument error handlers
+CFLAGS_cfi.o = $(DISABLE_CFI_CLANG)
+
 obj-y += sched/
 obj-y += locking/
 obj-y += power/
@@ -67,7 +70,6 @@ obj-$(CONFIG_COMPAT) += compat.o
 obj-$(CONFIG_CGROUPS) += cgroup.o
 obj-$(CONFIG_CGROUP_FREEZER) += cgroup_freezer.o
 obj-$(CONFIG_CGROUP_PIDS) += cgroup_pids.o
-obj-$(CONFIG_NUBIA_CGF_NOTIFY_EVENT) += cgf_notify.o
 obj-$(CONFIG_CPUSETS) += cpuset.o
 obj-$(CONFIG_UTS_NS) += utsname.o
 obj-$(CONFIG_USER_NS) += user_namespace.o
@@ -102,6 +104,7 @@ obj-$(CONFIG_TRACEPOINTS) += trace/
 obj-$(CONFIG_IRQ_WORK) += irq_work.o
 obj-$(CONFIG_CPU_PM) += cpu_pm.o
 obj-$(CONFIG_BPF) += bpf/
+obj-$(CONFIG_CFI_CLANG) += cfi.o
 
 obj-$(CONFIG_PERF_EVENTS) += events/
 

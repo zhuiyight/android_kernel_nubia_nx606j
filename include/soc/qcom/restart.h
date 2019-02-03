@@ -19,9 +19,6 @@
 
 void msm_set_restart_mode(int mode);
 extern int pmic_reset_irq;
-#ifdef CONFIG_NUBIA_INPUT_KEYRESET
-void msm_set_dload_mode(int mode);
-#endif
 
 #endif
 

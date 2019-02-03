@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2018 XiaoMi, Inc.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
  *
@@ -56,6 +57,9 @@
 #define MSM_VERSION_MAJOR	1
 #define MSM_VERSION_MINOR	2
 #define MSM_VERSION_PATCHLEVEL	0
+
+atomic_t resume_pending;
+wait_queue_head_t resume_wait_q;
 
 static void msm_fb_output_poll_changed(struct drm_device *dev)
 {
@@ -156,7 +160,8 @@ void __iomem *msm_ioremap(struct platform_device *pdev, const char *name,
 	}
 
 	if (reglog)
-		printk(KERN_DEBUG "IO:region %s %p %08lx\n", dbgname, ptr, size);
+		dev_dbg(&pdev->dev, "IO:region %s %pK %08lx\n",
+			dbgname, ptr, size);
 
 	return ptr;
 }
@@ -187,7 +192,7 @@ void msm_iounmap(struct platform_device *pdev, void __iomem *addr)
 void msm_writel(u32 data, void __iomem *addr)
 {
 	if (reglog)
-		printk(KERN_DEBUG "IO:W %p %08x\n", addr, data);
+		pr_debug("IO:W %pK %08x\n", addr, data);
 	writel(data, addr);
 }
 
@@ -196,66 +201,50 @@ u32 msm_readl(const void __iomem *addr)
 	u32 val = readl(addr);
 
 	if (reglog)
-		printk(KERN_ERR "IO:R %p %08x\n", addr, val);
+		pr_err("IO:R %pK %08x\n", addr, val);
 	return val;
 }
 
-struct vblank_event {
-	struct list_head node;
+struct vblank_work {
+	struct kthread_work work;
 	int crtc_id;
 	bool enable;
+	struct msm_drm_private *priv;
 };
 
 static void vblank_ctrl_worker(struct kthread_work *work)
 {
-	struct msm_vblank_ctrl *vbl_ctrl = container_of(work,
-						struct msm_vblank_ctrl, work);
-	struct msm_drm_private *priv = container_of(vbl_ctrl,
-					struct msm_drm_private, vblank_ctrl);
+	struct vblank_work *cur_work = container_of(work,
+					struct vblank_work, work);
+	struct msm_drm_private *priv = cur_work->priv;
 	struct msm_kms *kms = priv->kms;
-	struct vblank_event *vbl_ev, *tmp;
-	unsigned long flags;
-	LIST_HEAD(tmp_head);
 
-	spin_lock_irqsave(&vbl_ctrl->lock, flags);
-	list_for_each_entry_safe(vbl_ev, tmp, &vbl_ctrl->event_list, node) {
-		list_del(&vbl_ev->node);
-		list_add_tail(&vbl_ev->node, &tmp_head);
-	}
-	spin_unlock_irqrestore(&vbl_ctrl->lock, flags);
+	if (cur_work->enable)
+		kms->funcs->enable_vblank(kms, priv->crtcs[cur_work->crtc_id]);
+	else
+		kms->funcs->disable_vblank(kms, priv->crtcs[cur_work->crtc_id]);
 
-	list_for_each_entry_safe(vbl_ev, tmp, &tmp_head, node) {
-		if (vbl_ev->enable)
-			kms->funcs->enable_vblank(kms,
-						priv->crtcs[vbl_ev->crtc_id]);
-		else
-			kms->funcs->disable_vblank(kms,
-						priv->crtcs[vbl_ev->crtc_id]);
-
-		kfree(vbl_ev);
-	}
+	kfree(cur_work);
 }
 
 static int vblank_ctrl_queue_work(struct msm_drm_private *priv,
 					int crtc_id, bool enable)
 {
-	struct msm_vblank_ctrl *vbl_ctrl = &priv->vblank_ctrl;
-	struct vblank_event *vbl_ev;
-	unsigned long flags;
+	struct vblank_work *cur_work;
 
-	vbl_ev = kzalloc(sizeof(*vbl_ev), GFP_ATOMIC);
-	if (!vbl_ev)
+	if (!priv || crtc_id >= priv->num_crtcs)
+		return -EINVAL;
+
+	cur_work = kzalloc(sizeof(*cur_work), GFP_ATOMIC);
+	if (!cur_work)
 		return -ENOMEM;
 
-	vbl_ev->crtc_id = crtc_id;
-	vbl_ev->enable = enable;
+	kthread_init_work(&cur_work->work, vblank_ctrl_worker);
+	cur_work->crtc_id = crtc_id;
+	cur_work->enable = enable;
+	cur_work->priv = priv;
 
-	spin_lock_irqsave(&vbl_ctrl->lock, flags);
-	list_add_tail(&vbl_ev->node, &vbl_ctrl->event_list);
-	spin_unlock_irqrestore(&vbl_ctrl->lock, flags);
-
-	kthread_queue_work(&priv->disp_thread[crtc_id].worker,
-			&vbl_ctrl->work);
+	kthread_queue_work(&priv->disp_thread[crtc_id].worker, &cur_work->work);
 
 	return 0;
 }
@@ -267,19 +256,7 @@ static int msm_drm_uninit(struct device *dev)
 	struct msm_drm_private *priv = ddev->dev_private;
 	struct msm_kms *kms = priv->kms;
 	struct msm_gpu *gpu = priv->gpu;
-	struct msm_vblank_ctrl *vbl_ctrl = &priv->vblank_ctrl;
-	struct vblank_event *vbl_ev, *tmp;
 	int i;
-
-	/* We must cancel and cleanup any pending vblank enable/disable
-	 * work before drm_irq_uninstall() to avoid work re-enabling an
-	 * irq after uninstall has disabled it.
-	 */
-	kthread_flush_work(&vbl_ctrl->work);
-	list_for_each_entry_safe(vbl_ev, tmp, &vbl_ctrl->event_list, node) {
-		list_del(&vbl_ev->node);
-		kfree(vbl_ev);
-	}
 
 	/* clean up display commit/event worker threads */
 	for (i = 0; i < priv->num_crtcs; i++) {
@@ -494,7 +471,7 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 	struct sched_param param;
 
 	ddev = drm_dev_alloc(drv, dev);
-	if (IS_ERR_OR_NULL(ddev)) {
+	if (!ddev) {
 		dev_err(dev, "failed to allocate drm_device\n");
 		return -ENOMEM;
 	}
@@ -521,9 +498,6 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 
 	INIT_LIST_HEAD(&priv->client_event_list);
 	INIT_LIST_HEAD(&priv->inactive_list);
-	INIT_LIST_HEAD(&priv->vblank_ctrl.event_list);
-	kthread_init_work(&priv->vblank_ctrl.work, vblank_ctrl_worker);
-	spin_lock_init(&priv->vblank_ctrl.lock);
 
 	ret = sde_power_resource_init(pdev, &priv->phandle);
 	if (ret) {
@@ -666,6 +640,27 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 			}
 			goto fail;
 		}
+	}
+
+	/**
+	 * Since pp interrupt is heavy weight, try to queue the work
+	 * into a dedicated worker thread, so that they dont interrupt
+	 * other important events.
+	 */
+	kthread_init_worker(&priv->pp_event_worker);
+	priv->pp_event_thread = kthread_run(kthread_worker_fn,
+			&priv->pp_event_worker, "pp_event");
+
+	ret = sched_setscheduler(priv->pp_event_thread,
+						SCHED_FIFO, &param);
+	if (ret)
+		pr_warn("pp_event thread priority update failed: %d\n",
+								ret);
+
+	if (IS_ERR(priv->pp_event_thread)) {
+		dev_err(dev, "failed to create pp_event kthread\n");
+		priv->pp_event_thread = NULL;
+		goto fail;
 	}
 
 	ret = drm_vblank_init(ddev, priv->num_crtcs);
@@ -926,6 +921,14 @@ static void msm_lastclose(struct drm_device *dev)
 	struct msm_kms *kms = priv->kms;
 	int i;
 
+	/* check for splash status before triggering cleanup
+	 * if we end up here with splash status ON i.e before first
+	 * commit then ignore the last close call
+	 */
+	if (kms && kms->funcs && kms->funcs->check_for_splash
+		&& kms->funcs->check_for_splash(kms))
+		return;
+
 	/*
 	 * clean up vblank disable immediately as this is the last close.
 	 */
@@ -995,7 +998,7 @@ static int msm_enable_vblank(struct drm_device *dev, unsigned int pipe)
 
 	if (!kms)
 		return -ENXIO;
-	DBG("dev=%p, crtc=%u", dev, pipe);
+	DBG("dev=%pK, crtc=%u", dev, pipe);
 	return vblank_ctrl_queue_work(priv, pipe, true);
 }
 
@@ -1006,7 +1009,7 @@ static void msm_disable_vblank(struct drm_device *dev, unsigned int pipe)
 
 	if (!kms)
 		return;
-	DBG("dev=%p, crtc=%u", dev, pipe);
+	DBG("dev=%pK, crtc=%u", dev, pipe);
 	vblank_ctrl_queue_work(priv, pipe, false);
 }
 
@@ -1413,9 +1416,10 @@ static int msm_release(struct inode *inode, struct file *filp)
 	struct drm_minor *minor = file_priv->minor;
 	struct drm_device *dev = minor->dev;
 	struct msm_drm_private *priv = dev->dev_private;
-	struct msm_drm_event *node, *temp;
+	struct msm_drm_event *node, *temp, *tmp_node;
 	u32 count;
 	unsigned long flags;
+	LIST_HEAD(tmp_head);
 
 	spin_lock_irqsave(&dev->event_lock, flags);
 	list_for_each_entry_safe(node, temp, &priv->client_event_list,
@@ -1423,52 +1427,27 @@ static int msm_release(struct inode *inode, struct file *filp)
 		if (node->base.file_priv != file_priv)
 			continue;
 		list_del(&node->base.link);
-		spin_unlock_irqrestore(&dev->event_lock, flags);
-		count = msm_event_client_count(dev, &node->info, true);
-		if (!count)
-			msm_register_event(dev, &node->info, file_priv, false);
-		kfree(node);
-		spin_lock_irqsave(&dev->event_lock, flags);
+		list_add_tail(&node->base.link, &tmp_head);
 	}
 	spin_unlock_irqrestore(&dev->event_lock, flags);
 
-	return drm_release(inode, filp);
-}
+	list_for_each_entry_safe(node, temp, &tmp_head,
+			base.link) {
+		list_del(&node->base.link);
+		count = msm_event_client_count(dev, &node->info, false);
 
-/**
- * msm_drv_framebuffer_remove - remove and unreference a framebuffer object
- * @fb: framebuffer to remove
- */
-void msm_drv_framebuffer_remove(struct drm_framebuffer *fb)
-{
-	struct drm_device *dev;
-
-	if (!fb)
-		return;
-
-	dev = fb->dev;
-
-	WARN_ON(!list_empty(&fb->filp_head));
-
-	drm_framebuffer_unreference(fb);
-}
-
-struct msm_drv_rmfb2_work {
-	struct work_struct work;
-	struct list_head fbs;
-};
-
-static void msm_drv_rmfb2_work_fn(struct work_struct *w)
-{
-	struct msm_drv_rmfb2_work *arg = container_of(w, typeof(*arg), work);
-
-	while (!list_empty(&arg->fbs)) {
-		struct drm_framebuffer *fb =
-			list_first_entry(&arg->fbs, typeof(*fb), filp_head);
-
-		list_del_init(&fb->filp_head);
-		msm_drv_framebuffer_remove(fb);
+		list_for_each_entry(tmp_node, &tmp_head, base.link) {
+			if (tmp_node->event.type == node->info.event &&
+				tmp_node->info.object_id ==
+					node->info.object_id)
+				count++;
+		}
+		if (!count)
+			msm_register_event(dev, &node->info, file_priv, false);
+		kfree(node);
 	}
+
+	return drm_release(inode, filp);
 }
 
 /**
@@ -1514,25 +1493,7 @@ int msm_ioctl_rmfb2(struct drm_device *dev, void *data,
 	list_del_init(&fb->filp_head);
 	mutex_unlock(&file_priv->fbs_lock);
 
-	/*
-	 * we now own the reference that was stored in the fbs list
-	 *
-	 * drm_framebuffer_remove may fail with -EINTR on pending signals,
-	 * so run this in a separate stack as there's no way to correctly
-	 * handle this after the fb is already removed from the lookup table.
-	 */
-	if (drm_framebuffer_read_refcount(fb) > 1) {
-		struct msm_drv_rmfb2_work arg;
-
-		INIT_WORK_ONSTACK(&arg.work, msm_drv_rmfb2_work_fn);
-		INIT_LIST_HEAD(&arg.fbs);
-		list_add_tail(&fb->filp_head, &arg.fbs);
-
-		schedule_work(&arg.work);
-		flush_work(&arg.work);
-		destroy_work_on_stack(&arg.work);
-	} else
-		drm_framebuffer_unreference(fb);
+	drm_framebuffer_unreference(fb);
 
 	return 0;
 }
@@ -1627,6 +1588,19 @@ static struct drm_driver msm_driver = {
 };
 
 #ifdef CONFIG_PM_SLEEP
+static int msm_pm_prepare(struct device *dev)
+{
+	atomic_inc(&resume_pending);
+	return 0;
+}
+
+static void msm_pm_complete(struct device *dev)
+{
+	atomic_set(&resume_pending, 0);
+	wake_up_all(&resume_wait_q);
+	return;
+}
+
 static int msm_pm_suspend(struct device *dev)
 {
 	struct drm_device *ddev;
@@ -1679,6 +1653,8 @@ static int msm_pm_resume(struct device *dev)
 #endif
 
 static const struct dev_pm_ops msm_pm_ops = {
+	.prepare = msm_pm_prepare,
+	.complete = msm_pm_complete,
 	SET_SYSTEM_SLEEP_PM_OPS(msm_pm_suspend, msm_pm_resume)
 };
 
@@ -1839,6 +1815,27 @@ static int add_display_components(struct device *dev,
 	return ret;
 }
 
+static int add_bridge_components(struct device *dev,
+				  struct component_match **matchptr)
+{
+	struct device_node *node;
+
+	if (of_device_is_compatible(dev->of_node, "qcom,sde-kms")) {
+		struct device_node *np = dev->of_node;
+		unsigned int i;
+
+		for (i = 0; ; i++) {
+			node = of_parse_phandle(np, "bridges", i);
+			if (!node)
+				break;
+
+			component_match_add(dev, matchptr, compare_of, node);
+		}
+	}
+
+	return 0;
+}
+
 struct msm_gem_address_space *
 msm_gem_smmu_address_space_get(struct drm_device *dev,
 		unsigned int domain)
@@ -1930,6 +1927,10 @@ static int msm_pdev_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
+	ret = add_bridge_components(&pdev->dev, &match);
+	if (ret)
+		return ret;
+
 	pdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
 	return component_master_add_with_match(&pdev->dev, &msm_drm_ops, match);
 }
@@ -1981,6 +1982,7 @@ static struct platform_driver msm_platform_driver = {
 		.name   = "msm_drm",
 		.of_match_table = dt_match,
 		.pm     = &msm_pm_ops,
+		.suppress_bind_attrs = true,
 	},
 };
 

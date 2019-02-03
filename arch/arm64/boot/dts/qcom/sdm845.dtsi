@@ -1,4 +1,5 @@
 /* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2018 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -47,7 +48,6 @@
 		spi0 = &qupv3_se8_spi;
 		i2c0 = &qupv3_se10_i2c;
 		i2c1 = &qupv3_se3_i2c;
-		i2c2 = &qupv3_se14_i2c;
 		hsuart0 = &qupv3_se6_4uart;
 	};
 
@@ -498,7 +498,7 @@
 			compatible = "android,firmware";
 			vbmeta {
 				compatible = "android,vbmeta";
-				parts = "vbmeta,boot,recovery,system,vendor,dtbo";
+				parts = "vbmeta,boot,system,vendor,dtbo";
 			};
 
 			fstab {
@@ -508,21 +508,13 @@
 					dev = "/dev/block/platform/soc/1d84000.ufshc/by-name/vendor";
 					type = "ext4";
 					mnt_flags = "ro,barrier=1,discard";
-					fsmgr_flags = "wait,avb";
+					fsmgr_flags = "wait,slotselect,avb";
 				};
-                                system {
-					compatible = "android,vendor";
-					dev = "/dev/block/platform/soc/1d84000.ufshc/by-name/system";
-					type = "ext4";
-					mnt_flags = "ro,barrier=1,discard";
-					fsmgr_flags = "wait,avb";
-				};
-
 			};
 		};
 	};
 
-	reserved-memory {
+	reserved_memory: reserved-memory {
 		#address-cells = <2>;
 		#size-cells = <2>;
 		ranges;
@@ -534,7 +526,7 @@
 
 		xbl_region: xbl_region@85e00000 {
 			no-map;
-			reg = <0 0x85e00000 0 0x100000>;
+			reg = <0 0x85d00000 0 0x200000>;
 		};
 
 		removed_region: removed_region@85fc0000 {
@@ -575,49 +567,49 @@
 		pil_adsp_mem: adsp_region@0x8c500000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x8c500000 0 0x1a00000>;
+			reg = <0 0x8c500000 0 0x1e00000>;
 		};
 
-		wlan_fw_region: wlan_fw_region@0x8df00000 {
+		wlan_fw_region: wlan_fw_region@0x8e300000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x8df00000 0 0x100000>;
+			reg = <0 0x8e300000 0 0x100000>;
 		};
 
-		pil_modem_mem: modem_region@0x8e000000 {
+		pil_modem_mem: modem_region@0x8e400000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x8e000000 0 0x7800000>;
+			reg = <0 0x8e400000 0 0x7800000>;
 		};
 
-		pil_video_mem: video_region@0x95800000 {
+		pil_video_mem: video_region@0x95c00000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x95800000 0 0x500000>;
+			reg = <0 0x95c00000 0 0x500000>;
 		};
 
-		pil_cdsp_mem: cdsp_region@0x95d00000 {
+		pil_cdsp_mem: cdsp_region@0x96100000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x95d00000 0 0x800000>;
+			reg = <0 0x96100000 0 0x800000>;
 		};
 
-		pil_mba_mem: mba_region@0x96500000 {
+		pil_mba_mem: mba_region@0x96900000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x96500000 0 0x200000>;
+			reg = <0 0x96900000 0 0x200000>;
 		};
 
-		pil_slpi_mem: slpi_region@0x96700000 {
+		pil_slpi_mem: slpi_region@0x96b00000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x96700000 0 0x1400000>;
+			reg = <0 0x96b00000 0 0x1400000>;
 		};
 
-		pil_spss_mem: pil_spss_region@0x97b00000 {
+		pil_spss_mem: pil_spss_region@0x97f00000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x97b00000 0 0x100000>;
+			reg = <0 0x97f00000 0 0x100000>;
 		};
 
 		adsp_mem: adsp_region {
@@ -1277,7 +1269,7 @@
 		vdd_pwrcl_mx_ao-supply = <&pm8998_s6_level_ao>;
 
 		qcom,mx-turbo-freq = <1478400000 1689600000 3300000001>;
-		l3-devs = <&l3_cpu0 &l3_cpu4 &l3_cdsp>;
+		l3-devs = <&l3_cpu0 &l3_cpu4 &l3_cdsp &msm_gpu>;
 
 		clock-names = "xo_ao";
 		clocks = <&clock_rpmh RPMH_CXO_CLK_A>;
@@ -1286,7 +1278,7 @@
 
 	clock_debug: qcom,cc-debug@100000 {
 		compatible = "qcom,debugcc-sdm845";
-		qcom,cc-count = <5>;
+		qcom,cc-count = <6>;
 		qcom,gcc = <&clock_gcc>;
 		qcom,videocc = <&clock_videocc>;
 		qcom,camcc = <&clock_camcc>;
@@ -1759,8 +1751,8 @@
 		reg = <0x17980000 0x1000>;
 		reg-names = "wdt-base";
 		interrupts = <0 0 0>, <0 1 0>;
-		qcom,bark-time = <11000>;
-		qcom,pet-time = <9360>;
+		qcom,bark-time = <20000>;
+		qcom,pet-time = <15000>;
 		qcom,ipi-ping;
 		qcom,wakeup-enable;
 	};
@@ -1914,6 +1906,11 @@
 			reg = <0x10 8>;
 		};
 
+		dload_type@18 {
+			compatible = "qcom,msm-imem-dload-type";
+			reg = <0x18 4>;
+		};
+
 		restart_reason@65c {
 			compatible = "qcom,msm-imem-restart_reason";
 			reg = <0x65c 4>;
@@ -1937,11 +1934,6 @@
 		kaslr_offset@6d0 {
 			compatible = "qcom,msm-imem-kaslr_offset";
 			reg = <0x6d0 12>;
-		};
-
-		reduced_sdi_mode@6dc {
-			compatible = "qcom,msm-imem-reduced_sdi_mode";
-			reg = <0x6dc 4>;
 		};
 
 		diag_dload@c8 {
@@ -2390,6 +2382,7 @@
 		qcom,xprt-version = <1>;
 		qcom,fragmented-data;
 		qcom,dynamic-wakeup-source;
+		qcom,low-latency-xprt;
 	};
 
 	qcom,ipc_router_cdsp_xprt {
@@ -2501,11 +2494,11 @@
 		qcom,pipe-attr-ee;
 	};
 
-	qcom,qbt1000 {
+	qcom_qbt1000: qcom,qbt1000 {
 		compatible = "qcom,qbt1000";
 		clock-names = "core", "iface";
 		clock-frequency = <25000000>;
-		#qcom,ipc-gpio = <&tlmm 121 0>;
+		qcom,ipc-gpio = <&tlmm 121 0>;
 		qcom,finger-detect-gpio = <&pm8998_gpios 5 0>;
 	};
 
@@ -2586,9 +2579,31 @@
 			 <&clock_gcc GCC_CE1_AXI_CLK>;
 		qcom,ce-opp-freq = <171430000>;
 		qcom,request-bw-before-clk;
+
 		qcom,smmu-s1-enable;
 		iommus = <&apps_smmu 0x706 0x1>,
 			 <&apps_smmu 0x716 0x1>;
+
+		qcom_cedev_ns_cb {
+			compatible = "qcom,qcedev,context-bank";
+			label = "ns_context";
+			iommus = <&apps_smmu 0x712 0>,
+			       <&apps_smmu 0x71f 0>;
+			virtual-addr = <0x60000000>;
+			virtual-size = <0x40000000>;
+		};
+
+		qcom_cedev_s_cb {
+			compatible = "qcom,qcedev,context-bank";
+			label = "secure_context";
+			iommus = <&apps_smmu 0x713 0>,
+			       <&apps_smmu 0x71c 0>,
+			       <&apps_smmu 0x71d 0>,
+			       <&apps_smmu 0x71e 0>;
+			virtual-addr = <0x60200000>;
+			virtual-size = <0x40000000>;
+			qcom,secure-context-bank;
+		};
 	};
 
 	qcom_msmhdcp: qcom,msm_hdcp {
@@ -2662,7 +2677,7 @@
 			<0 432 0>;
 		interrupt-names = "ipa-irq", "gsi-irq";
 		qcom,ipa-hw-ver = <13>; /* IPA core version = IPAv3.5.1 */
-		qcom,ipa-hw-mode = <1>;
+		qcom,ipa-hw-mode = <0>;
 		qcom,ee = <0>;
 		qcom,use-ipa-tethering-bridge;
 		qcom,modem-cfg-emb-pipe-flt;
@@ -2861,7 +2876,7 @@
 	};
 
 	dcc: dcc_v2@10a2000 {
-		compatible = "qcom,dcc_v2";
+		compatible = "qcom,dcc-v2";
 		reg = <0x10a2000 0x1000>,
 		      <0x10ae000 0x2000>;
 		reg-names = "dcc-base", "dcc-ram-base";
@@ -2970,7 +2985,6 @@
 				 <DCC_READ 0x011360b0 1 0>,
 				 <DCC_READ 0x0113e030 2 0>,
 				 <DCC_READ 0x01141000 1 0>,
-				 <DCC_READ 0x01142028 1 0>,
 				 <DCC_READ 0x01148058 4 0>,
 				 <DCC_READ 0x01160410 3 0>,
 				 <DCC_READ 0x011604a0 1 0>,
@@ -2981,7 +2995,6 @@
 				 <DCC_READ 0x011b6044 4 0>,
 				 <DCC_READ 0x011be030 2 0>,
 				 <DCC_READ 0x011c1000 1 0>,
-				 <DCC_READ 0x011c2028 1 0>,
 				 <DCC_READ 0x011c8058 4 0>,
 				 <DCC_READ 0x011e0410 3 0>,
 				 <DCC_READ 0x011e04a0 1 0>,
@@ -2993,7 +3006,6 @@
 				 <DCC_READ 0x012360B0 1 0>,
 				 <DCC_READ 0x0123E030 2 0>,
 				 <DCC_READ 0x01241000 1 0>,
-				 <DCC_READ 0x01242028 1 0>,
 				 <DCC_READ 0x01248058 4 0>,
 				 <DCC_READ 0x01260410 3 0>,
 				 <DCC_READ 0x012604a0 1 0>,
@@ -3006,7 +3018,6 @@
 				 <DCC_READ 0x012b60b0 1 0>,
 				 <DCC_READ 0x012be030 2 0>,
 				 <DCC_READ 0x012c1000 1 0>,
-				 <DCC_READ 0x012c2028 1 0>,
 				 <DCC_READ 0x012c8058 4 0>,
 				 <DCC_READ 0x012e0410 3 0>,
 				 <DCC_READ 0x012e04a0 1 0>,
@@ -3015,7 +3026,6 @@
 				 <DCC_READ 0x012e6418 1 0>,
 				 <DCC_READ 0x01380900 8 0>,
 				 <DCC_READ 0x01380d00 5 0>,
-				 <DCC_READ 0x01350110 4 0>,
 				 <DCC_READ 0x01430280 1 0>,
 				 <DCC_READ 0x01430288 1 0>,
 				 <DCC_READ 0x0143028c 7 0>,
@@ -3024,7 +3034,6 @@
 				 <DCC_READ 0x011360b0 1 0>,
 				 <DCC_READ 0x0113e030 2 0>,
 				 <DCC_READ 0x01141000 1 0>,
-				 <DCC_READ 0x01142028 1 0>,
 				 <DCC_READ 0x01148058 4 0>,
 				 <DCC_READ 0x01160410 3 0>,
 				 <DCC_READ 0x011604a0 1 0>,
@@ -3035,7 +3044,6 @@
 				 <DCC_READ 0x011b6044 4 0>,
 				 <DCC_READ 0x011be030 2 0>,
 				 <DCC_READ 0x011c1000 1 0>,
-				 <DCC_READ 0x011c2028 1 0>,
 				 <DCC_READ 0x011c8058 4 0>,
 				 <DCC_READ 0x011e0410 3 0>,
 				 <DCC_READ 0x011e04a0 1 0>,
@@ -3047,7 +3055,6 @@
 				 <DCC_READ 0x012360b0 1 0>,
 				 <DCC_READ 0x0123e030 2 0>,
 				 <DCC_READ 0x01241000 1 0>,
-				 <DCC_READ 0x01242028 1 0>,
 				 <DCC_READ 0x01248058 4 0>,
 				 <DCC_READ 0x01260410 3 0>,
 				 <DCC_READ 0x012604a0 1 0>,
@@ -3060,7 +3067,6 @@
 				 <DCC_READ 0x012b60b0 1 0>,
 				 <DCC_READ 0x012be030 2 0>,
 				 <DCC_READ 0x012C1000 1 0>,
-				 <DCC_READ 0x012C2028 1 0>,
 				 <DCC_READ 0x012C8058 4 0>,
 				 <DCC_READ 0x012e0410 3 0>,
 				 <DCC_READ 0x012e04a0 1 0>,
@@ -3069,7 +3075,6 @@
 				 <DCC_READ 0x012e6418 1 0>,
 				 <DCC_READ 0x01380900 8 0>,
 				 <DCC_READ 0x01380d00 5 0>,
-				 <DCC_READ 0x01350110 4 0>,
 				 <DCC_READ 0x01430280 1 0>,
 				 <DCC_READ 0x01430288 1 0>,
 				 <DCC_READ 0x0143028c 7 0>,
@@ -3103,6 +3108,7 @@
 			     <0 425 0 /* CE11 */ >;
 		qcom,wlan-msa-memory = <0x100000>;
 		qcom,gpio-force-fatal-error = <&smp2pgpio_wlan_1_in 0 0>;
+		qcom,gpio-early-crash-ind = <&smp2pgpio_wlan_1_in 1 0>;
 
 		vdd-0.8-cx-mx-supply = <&pm8998_l5>;
 		vdd-1.8-xo-supply = <&pm8998_l7>;
@@ -4062,9 +4068,12 @@
 
 &mdss_core_gdsc {
 	status = "ok";
+	qcom,en-few-wait-val = <6>;
+	qcom,en-rest-wait-val = <5>;
 };
 
 &gpu_cx_gdsc {
+	parent-supply = <&pm8998_s9_level>;
 	status = "ok";
 };
 

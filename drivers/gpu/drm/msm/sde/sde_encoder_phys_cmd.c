@@ -481,7 +481,7 @@ static int _sde_encoder_phys_cmd_handle_ppdone_timeout(
 		cmd_enc->pp_timeout_report_cnt = PP_TIMEOUT_MAX_TRIALS;
 		frame_event |= SDE_ENCODER_FRAME_EVENT_PANEL_DEAD;
 
-		//SDE_DBG_DUMP("panic");
+		SDE_DBG_DUMP("panic");
 	} else if (cmd_enc->pp_timeout_report_cnt == 1) {
 		/* to avoid flooding, only log first time, and "dead" time */
 		SDE_ERROR_CMDENC(cmd_enc,
@@ -565,7 +565,7 @@ static int _sde_encoder_phys_cmd_poll_write_pointer_started(
 				phys_enc->hw_pp->idx - PINGPONG_0,
 				timeout_us,
 				ret);
-		//SDE_DBG_DUMP("all", "dbg_bus", "vbif_dbg_bus", "panic");
+		SDE_DBG_DUMP("all", "dbg_bus", "vbif_dbg_bus", "panic");
 	}
 
 	return ret;
@@ -680,6 +680,7 @@ static int sde_encoder_phys_cmd_control_vblank_irq(
 		return -EINVAL;
 	}
 
+	mutex_lock(phys_enc->vblank_ctl_lock);
 	refcount = atomic_read(&phys_enc->vblank_refcount);
 
 	/* Slave encoders don't report vblank */
@@ -713,6 +714,7 @@ end:
 				enable, refcount, SDE_EVTLOG_ERROR);
 	}
 
+	mutex_unlock(phys_enc->vblank_ctl_lock);
 	return ret;
 }
 
@@ -1398,6 +1400,7 @@ struct sde_encoder_phys *sde_encoder_phys_cmd_init(
 	phys_enc->split_role = p->split_role;
 	phys_enc->intf_mode = INTF_MODE_CMD;
 	phys_enc->enc_spinlock = p->enc_spinlock;
+	phys_enc->vblank_ctl_lock = p->vblank_ctl_lock;
 	cmd_enc->stream_sel = 0;
 	phys_enc->enable_state = SDE_ENC_DISABLED;
 	phys_enc->comp_type = p->comp_type;

@@ -33,6 +33,7 @@ unsigned int pm_wakeup_irq __read_mostly;
 
 /* If set and the system is suspending, terminate the suspend. */
 static bool pm_abort_suspend __read_mostly;
+
 /*
  * Combined counters of registered wakeup events and wakeup events in progress.
  * They need to be modified together atomically, so it's better to use one
@@ -557,6 +558,7 @@ static void wakeup_source_report_event(struct wakeup_source *ws)
 	/* This is racy, but the counter is approximate anyway. */
 	if (events_check_enabled)
 		ws->wakeup_count++;
+
 	if (!ws->active)
 		wakeup_source_activate(ws);
 }
@@ -1021,6 +1023,7 @@ void pm_wakep_autosleep_enabled(bool set)
 #endif /* CONFIG_PM_AUTOSLEEP */
 
 static struct dentry *wakeup_sources_stats_dentry;
+
 /**
  * print_wakeup_source_stats - Print wakeup source statistics information.
  * @m: seq_file to print the statistics into.

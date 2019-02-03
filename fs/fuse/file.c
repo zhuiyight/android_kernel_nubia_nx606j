@@ -19,10 +19,6 @@
 #include <linux/falloc.h>
 #include <linux/uio.h>
 
-//Nubia FileObserver Begin
-#include "file_observer.h"
-//Nubia FileObserver End
-
 static const struct file_operations fuse_direct_io_file_operations;
 
 static int fuse_send_open(struct fuse_conn *fc, u64 nodeid, struct file *file,
@@ -74,12 +70,6 @@ struct fuse_file *fuse_file_alloc(struct fuse_conn *fc)
 		kfree(ff);
 		return NULL;
 	}
-
-        //Nubia FileObserver Begin
-        //ff->creator = NULL;
-        memset(&ff->creator, 0, sizeof(struct fuse_file_creator));
-        ff->mask = 0;
-        //Nubia FileObserver End
 
 	INIT_LIST_HEAD(&ff->write_entry);
 	atomic_set(&ff->count, 0);
@@ -307,12 +297,7 @@ void fuse_release_common(struct file *file, int opcode)
 
 static int fuse_open(struct inode *inode, struct file *file)
 {
-        int ret = 0;
-	ret = fuse_open_common(inode, file, false);
-        //Nubia FileObserver Begin
-        //fuse_post_file_open(file);
-        //Nubia FileObserver End
-        return ret;
+	return fuse_open_common(inode, file, false);
 }
 
 static int fuse_release(struct inode *inode, struct file *file)
@@ -324,9 +309,7 @@ static int fuse_release(struct inode *inode, struct file *file)
 		write_inode_now(inode, 1);
 
 	fuse_release_common(file, FUSE_RELEASE);
-        //Nubia FileObserver Begin
-        fuse_post_file_release(inode, file);
-        //Nubia FileObserver End
+
 	/* return value is ignored by VFS */
 	return 0;
 }
@@ -874,9 +857,9 @@ struct fuse_fill_data {
 	unsigned nr_pages;
 };
 
-static int fuse_readpages_fill(void *_data, struct page *page)
+static int fuse_readpages_fill(struct file *_data, struct page *page)
 {
-	struct fuse_fill_data *data = _data;
+	struct fuse_fill_data *data = (struct fuse_fill_data *)_data;
 	struct fuse_req *req = data->req;
 	struct inode *inode = data->inode;
 	struct fuse_conn *fc = get_fuse_conn(inode);
@@ -903,6 +886,7 @@ static int fuse_readpages_fill(void *_data, struct page *page)
 	}
 
 	if (WARN_ON(req->num_pages >= req->max_pages)) {
+		unlock_page(page);
 		fuse_put_request(fc, req);
 		return -EIO;
 	}
@@ -1277,10 +1261,6 @@ static ssize_t fuse_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 		if (written >= 0)
 			iocb->ki_pos += written;
 	}
-
-        //Nubia FileObserver Begin
-        fuse_post_file_write(file);
-        //Nubia FileObserver End
 out:
 	current->backing_dev_info = NULL;
 	inode_unlock(inode);
@@ -2552,11 +2532,6 @@ long fuse_do_ioctl(struct file *file, unsigned int cmd, unsigned long arg,
 	if (flags & FUSE_IOCTL_COMPAT)
 		inarg.flags |= FUSE_IOCTL_32BIT;
 #endif
-//Nubia FileObserver Begin
-        if(fuse_do_fileobserver_ioctl(file, cmd, arg, flags)) {
-            return 0;
-        }
-//Nubia FileObserver End
 
 	/* assume all the iovs returned by client always fits in a page */
 	BUILD_BUG_ON(sizeof(struct fuse_ioctl_iovec) * FUSE_IOCTL_MAX_IOV > PAGE_SIZE);
@@ -2962,10 +2937,12 @@ fuse_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
 	}
 
 	if (io->async) {
+		bool blocking = io->blocking;
+
 		fuse_aio_complete(io, ret < 0 ? ret : 0, -1);
 
 		/* we have a non-extending, async request, so return */
-		if (!io->blocking)
+		if (!blocking)
 			return -EIOCBQUEUED;
 
 		wait_for_completion(&wait);

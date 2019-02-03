@@ -122,14 +122,11 @@ min_adv_mss - INTEGER
 
 IP Fragmentation:
 
-ipfrag_high_thresh - INTEGER
-	Maximum memory used to reassemble IP fragments. When
-	ipfrag_high_thresh bytes of memory is allocated for this purpose,
-	the fragment handler will toss packets until ipfrag_low_thresh
-	is reached. This also serves as a maximum limit to namespaces
-	different from the initial one.
+ipfrag_high_thresh - LONG INTEGER
+	Maximum memory used to reassemble IP fragments.
 
-ipfrag_low_thresh - INTEGER
+ipfrag_low_thresh - LONG INTEGER
+	(Obsolete since linux-4.17)
 	Maximum memory used to reassemble IP fragments before the kernel
 	begins to remove incomplete fragment queues to free up resources.
 	The kernel still accepts new fragments for defragmentation.
@@ -1288,6 +1285,10 @@ igmp_link_local_mcast_reports - BOOLEAN
 	224.0.0.X range.
 	Default TRUE
 
+nf_ipv4_defrag_skip - BOOLEAN
+	Skip defragmentation per interface if set.
+	Default : 0 (always defrag)
+
 Alexey Kuznetsov.
 kuznet@ms2.inr.ac.ru
 
@@ -1497,6 +1498,11 @@ accept_ra_mtu - BOOLEAN
 
 	Functional default: enabled if accept_ra is enabled.
 			    disabled if accept_ra is disabled.
+
+accept_ra_prefix_route - BOOLEAN
+	Set the prefix route for the autoconfigured interface address
+
+	Functional default: enabled
 
 accept_redirects - BOOLEAN
 	Accept Redirects.

@@ -38,6 +38,8 @@
  * @DSI_CTRL_CMD_LAST_COMMAND:     Trigger the DMA cmd transfer if this is last
  *				   command in the batch.
  * @DSI_CTRL_CMD_NON_EMBEDDED_MODE:Trasfer cmd packets in non embedded mode.
+ * @DSI_CTRL_CMD_CUSTOM_DMA_SCHED: Use the dma scheduling line number defined in
+ *				   display panel dtsi file instead of default.
  */
 #define DSI_CTRL_CMD_READ             0x1
 #define DSI_CTRL_CMD_BROADCAST        0x2
@@ -47,6 +49,7 @@
 #define DSI_CTRL_CMD_FETCH_MEMORY     0x20
 #define DSI_CTRL_CMD_LAST_COMMAND     0x40
 #define DSI_CTRL_CMD_NON_EMBEDDED_MODE 0x80
+#define DSI_CTRL_CMD_CUSTOM_DMA_SCHED  0x100
 
 /* DSI embedded mode fifo size
  * If the command is greater than 256 bytes it is sent in non-embedded mode.
@@ -55,6 +58,18 @@
 
 /* max size supported for dsi cmd transfer using TPG */
 #define DSI_CTRL_MAX_CMD_FIFO_STORE_SIZE 64
+
+/**
+ * enum dsi_channel_id - defines dsi channel id.
+ * @DSI_CTRL_LEFT:    DSI 0 channel
+ * @DSI_CTRL_RIGHT:   DSI 1 channel
+ * @DSI_CTRL_MAX:  Maximum value.
+ */
+enum dsi_channel_id {
+	DSI_CTRL_LEFT = 0,
+	DSI_CTRL_RIGHT,
+	DSI_CTRL_MAX,
+};
 
 /**
  * enum dsi_power_state - defines power states for dsi controller.
@@ -97,7 +112,8 @@ struct dsi_ctrl_power_info {
 /**
  * struct dsi_ctrl_clk_info - clock information for DSI controller
  * @core_clks:          Core clocks needed to access DSI controller registers.
- * @link_clks:          Link clocks required to transmit data over DSI link.
+ * @hs_link_clks:       Clocks required to transmit high speed data over DSI
+ * @lp_link_clks:       Clocks required to perform low power ops over DSI
  * @rcg_clks:           Root clock generation clocks generated in MMSS_CC. The
  *			output of the PLL is set as parent for these root
  *			clocks. These clocks are specific to controller
@@ -111,7 +127,8 @@ struct dsi_ctrl_power_info {
 struct dsi_ctrl_clk_info {
 	/* Clocks parsed from DT */
 	struct dsi_core_clk_info core_clks;
-	struct dsi_link_clk_info link_clks;
+	struct dsi_link_hs_clk_info hs_link_clks;
+	struct dsi_link_lp_clk_info lp_link_clks;
 	struct dsi_clk_link_set rcg_clks;
 
 	/* Clocks set by DSI Manager */
@@ -212,6 +229,7 @@ struct dsi_ctrl_interrupts {
  *                          dsi controller and run only dsi controller.
  * @null_insertion_enabled:  A boolean property to allow dsi controller to
  *                           insert null packet.
+ * @modeupdated:	  Boolean to send new roi if mode is updated.
  */
 struct dsi_ctrl {
 	struct platform_device *pdev;
@@ -260,6 +278,7 @@ struct dsi_ctrl {
 
 	bool phy_isolation_enabled;
 	bool null_insertion_enabled;
+	bool modeupdated;
 };
 
 /**
@@ -747,10 +766,28 @@ int dsi_ctrl_get_host_engine_init_state(struct dsi_ctrl *dsi_ctrl,
 		bool *state);
 
 /**
+ * dsi_ctrl_update_host_init_state() - Set the host initialization state
+ */
+int dsi_ctrl_update_host_init_state(struct dsi_ctrl *dsi_ctrl, bool en);
+
+/**
  * dsi_ctrl_wait_for_cmd_mode_mdp_idle() - Wait for command mode engine not to
  *				     be busy sending data from display engine.
  * @dsi_ctrl:                     DSI controller handle.
  */
 int dsi_ctrl_wait_for_cmd_mode_mdp_idle(struct dsi_ctrl *dsi_ctrl);
 
+/**
+ * dsi_ctrl_set_continuous_clk() - API to set/unset force clock lane HS request.
+ * @dsi_ctrl:                      DSI controller handle.
+ * @enable:			   variable to control continuous clock.
+ */
+void dsi_ctrl_set_continuous_clk(struct dsi_ctrl *dsi_ctrl, bool enable);
+
+/**
+ * dsi_ctrl_wait4dynamic_refresh_done() - Poll for dynamic refresh done
+ *					interrupt.
+ * @dsi_ctrl:                      DSI controller handle.
+ */
+int dsi_ctrl_wait4dynamic_refresh_done(struct dsi_ctrl *ctrl);
 #endif /* _DSI_CTRL_H_ */

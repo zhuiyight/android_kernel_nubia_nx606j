@@ -886,6 +886,23 @@ const void * __init of_flat_dt_match_machine(const void *default_match,
 	return best_data;
 }
 
+void __init early_init_dt_check_for_powerup_reason(unsigned long node)
+{
+	unsigned long pu_reason;
+	int len;
+	const __be32 *prop;
+
+	pr_debug("Looking for powerup reason properties...\n");
+
+	prop = of_get_flat_dt_prop(node, "pureason", &len);
+	if (!prop)
+		return;
+	pu_reason = of_read_ulong(prop, len/4);
+	early_init_dt_setup_pureason_arch(pu_reason);
+
+	pr_debug("Powerup reason %d\n", (int)pu_reason);
+}
+
 #ifdef CONFIG_BLK_DEV_INITRD
 #ifndef __early_init_dt_declare_initrd
 static void __early_init_dt_declare_initrd(unsigned long start,
@@ -937,7 +954,7 @@ int __init early_init_dt_scan_chosen_stdout(void)
 	int offset;
 	const char *p, *q, *options = NULL;
 	int l;
-	const struct earlycon_id *match;
+	const struct earlycon_id **p_match;
 	const void *fdt = initial_boot_params;
 
 	offset = fdt_path_offset(fdt, "/chosen");
@@ -964,7 +981,10 @@ int __init early_init_dt_scan_chosen_stdout(void)
 		return 0;
 	}
 
-	for (match = __earlycon_table; match < __earlycon_table_end; match++) {
+	for (p_match = __earlycon_table; p_match < __earlycon_table_end;
+	     p_match++) {
+		const struct earlycon_id *match = *p_match;
+
 		if (!match->compatible[0])
 			continue;
 
@@ -1124,6 +1144,8 @@ int __init early_init_dt_scan_chosen(unsigned long node, const char *uname,
 	}
 
 	pr_debug("Command line is: %s\n", (char*)data);
+
+	early_init_dt_check_for_powerup_reason(node);
 
 	/* break now */
 	return 1;

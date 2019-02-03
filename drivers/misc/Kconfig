@@ -813,6 +813,12 @@ config QPNP_MISC
 	  and the driver provides an API to check if this interrupt
 	  is available on the current PMIC chip.
 
+config RTMV20
+	tristate "Ricktek RTMV2.0 driver"
+	default n
+	help
+	  Say Y here if you want to support Ricktek RTMV2.0 device.
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
@@ -825,4 +831,5 @@ source "drivers/misc/mic/Kconfig"
 source "drivers/misc/genwqe/Kconfig"
 source "drivers/misc/echo/Kconfig"
 source "drivers/misc/cxl/Kconfig"
+source "drivers/misc/fpr_FingerprintCard/Kconfig"
 endmenu

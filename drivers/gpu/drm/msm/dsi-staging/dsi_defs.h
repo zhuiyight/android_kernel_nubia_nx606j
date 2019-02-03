@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2018 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -79,6 +80,7 @@ enum dsi_op_mode {
  * @DSI_MODE_FLAG_DMS: Seamless transition is dynamic mode switch
  * @DSI_MODE_FLAG_VRR: Seamless transition is DynamicFPS.
  *                     New timing values are sent from DAL.
+ * @DSI_MODE_FLAG_DYN_CLK: Seamless transition is dynamic clock change
  */
 enum dsi_mode_flags {
 	DSI_MODE_FLAG_SEAMLESS			= BIT(0),
@@ -86,6 +88,7 @@ enum dsi_mode_flags {
 	DSI_MODE_FLAG_VBLANK_PRE_MODESET	= BIT(2),
 	DSI_MODE_FLAG_DMS			= BIT(3),
 	DSI_MODE_FLAG_VRR			= BIT(4),
+	DSI_MODE_FLAG_DYN_CLK			= BIT(5),
 };
 
 /**
@@ -262,16 +265,56 @@ enum dsi_cmd_set_type {
 	DSI_CMD_SET_LP1,
 	DSI_CMD_SET_LP2,
 	DSI_CMD_SET_NOLP,
+	DSI_CMD_SET_DOZE_HBM,
+	DSI_CMD_SET_DOZE_LBM,
 	DSI_CMD_SET_PPS,
 	DSI_CMD_SET_ROI,
 	DSI_CMD_SET_TIMING_SWITCH,
 	DSI_CMD_SET_POST_TIMING_SWITCH,
-#ifdef CONFIG_NUBIA_LCD_DISP_PREFERENCE
-	DSI_CMD_SET_CABC_OFF,
-	DSI_CMD_SET_CABC_LEVEL1,
-	DSI_CMD_SET_CABC_LEVEL2,
-	DSI_CMD_SET_CABC_LEVEL3,
-#endif
+	DSI_CMD_SET_DISP_WARM,
+	DSI_CMD_SET_DISP_DEFAULT,
+	DSI_CMD_SET_DISP_COLD,
+	DSI_CMD_SET_DISP_PAPER,
+	DSI_CMD_SET_DISP_PAPER1,
+	DSI_CMD_SET_DISP_PAPER2,
+	DSI_CMD_SET_DISP_PAPER3,
+	DSI_CMD_SET_DISP_PAPER4,
+	DSI_CMD_SET_DISP_PAPER5,
+	DSI_CMD_SET_DISP_PAPER6,
+	DSI_CMD_SET_DISP_PAPER7,
+	DSI_CMD_SET_DISP_NORMAL1,
+	DSI_CMD_SET_DISP_NORMAL2,
+	DSI_CMD_SET_DISP_SRGB,
+	DSI_CMD_SET_DISP_CEON,
+	DSI_CMD_SET_DISP_CEOFF,
+	DSI_CMD_SET_DISP_CABCUION,
+	DSI_CMD_SET_DISP_CABCSTILLON,
+	DSI_CMD_SET_DISP_CABCMOVIEON,
+	DSI_CMD_SET_DISP_CABCOFF,
+	DSI_CMD_SET_DISP_SKINCE_CABCUION,
+	DSI_CMD_SET_DISP_SKINCE_CABCSTILLON,
+	DSI_CMD_SET_DISP_SKINCE_CABCMOVIEON,
+	DSI_CMD_SET_DISP_SKINCE_CABCOFF,
+	DSI_CMD_SET_DISP_DIMMINGON,
+	DSI_CMD_SET_DISP_ACL_OFF,
+	DSI_CMD_SET_DISP_ACL_L1,
+	DSI_CMD_SET_DISP_ACL_L2,
+	DSI_CMD_SET_DISP_ACL_L3,
+	DSI_CMD_SET_DISP_HBM_ON,
+	DSI_CMD_SET_DISP_HBM_OFF,
+	DSI_CMD_SET_DISP_HBM_FOD_ON,
+	DSI_CMD_SET_DISP_HBM_FOD_OFF,
+	DSI_CMD_SET_DISP_HBM_FOD2NORM,
+	DSI_CMD_SET_DISP_OFF_MODE,
+	DSI_CMD_SET_DISP_ON_MODE,
+	DSI_CMD_SET_READ_XY_COORDINATE,
+	DSI_CMD_SET_READ_BRIGHTNESS,
+	DSI_CMD_SET_READ_MAX_LUMINANCE,
+	DSI_CMD_SET_MAX_LUMINANCE_VALID,
+	DSI_CMD_SET_DISP_CRC_SRGB,
+	DSI_CMD_SET_DISP_CRC_DCIP3,
+	DSI_CMD_SET_DISP_CRC_OFF,
+	DSI_CMD_SET_READ_SS_PANEL_ID,
 	DSI_CMD_SET_MAX
 };
 
@@ -410,6 +453,7 @@ struct dsi_mode_info {
  * @ignore_rx_eot:       Ignore Rx EOT packets if set to true.
  * @append_tx_eot:       Append EOT packets for forward transmissions if set to
  *                       true.
+ * @force_hs_clk_lane:   Send continuous clock to the panel.
  */
 struct dsi_host_common_cfg {
 	enum dsi_pixel_format dst_format;
@@ -428,6 +472,7 @@ struct dsi_host_common_cfg {
 	u32 t_clk_pre;
 	bool ignore_rx_eot;
 	bool append_tx_eot;
+	bool force_hs_clk_lane;
 };
 
 /**
@@ -444,6 +489,8 @@ struct dsi_host_common_cfg {
  * @bllp_lp11_en:              Enter low power stop mode (LP-11) during BLLP.
  * @traffic_mode:              Traffic mode for video stream.
  * @vc_id:                     Virtual channel identifier.
+ * @dma_sched_line:         Line number, after vactive end, at which command dma
+ *			       needs to be triggered.
  */
 struct dsi_video_engine_cfg {
 	bool last_line_interleave_en;
@@ -455,6 +502,7 @@ struct dsi_video_engine_cfg {
 	bool bllp_lp11_en;
 	enum dsi_video_traffic_mode traffic_mode;
 	u32 vc_id;
+	u32 dma_sched_line;
 };
 
 /**
@@ -596,12 +644,50 @@ struct dsi_event_cb_info {
  * @DSI_FIFO_OVERFLOW:     DSI FIFO Overflow error
  * @DSI_FIFO_UNDERFLOW:    DSI FIFO Underflow error
  * @DSI_LP_Rx_TIMEOUT:     DSI LP/RX Timeout error
+ * @DSI_PLL_UNLOCK_ERR:	   DSI PLL unlock error
  */
 enum dsi_error_status {
 	DSI_FIFO_OVERFLOW = 1,
 	DSI_FIFO_UNDERFLOW,
 	DSI_LP_Rx_TIMEOUT,
+	DSI_PLL_UNLOCK_ERR,
 	DSI_ERR_INTR_ALL,
 };
 
+/* structure containing the delays required for dynamic clk */
+struct dsi_dyn_clk_delay {
+	u32 pipe_delay;
+	u32 pipe_delay2;
+	u32 pll_delay;
+};
+
+/* dynamic refresh control bits */
+enum dsi_dyn_clk_control_bits {
+	DYN_REFRESH_INTF_SEL = 1,
+	DYN_REFRESH_SYNC_MODE,
+	DYN_REFRESH_SW_TRIGGER,
+	DYN_REFRESH_SWI_CTRL,
+};
+
+/* convert dsi pixel format into bits per pixel */
+static inline int dsi_pixel_format_to_bpp(enum dsi_pixel_format fmt)
+{
+	switch (fmt) {
+	case DSI_PIXEL_FORMAT_RGB888:
+	case DSI_PIXEL_FORMAT_MAX:
+		return 24;
+	case DSI_PIXEL_FORMAT_RGB666:
+	case DSI_PIXEL_FORMAT_RGB666_LOOSE:
+		return 18;
+	case DSI_PIXEL_FORMAT_RGB565:
+		return 16;
+	case DSI_PIXEL_FORMAT_RGB111:
+		return 3;
+	case DSI_PIXEL_FORMAT_RGB332:
+		return 8;
+	case DSI_PIXEL_FORMAT_RGB444:
+		return 12;
+	}
+	return 24;
+}
 #endif /* _DSI_DEFS_H_ */

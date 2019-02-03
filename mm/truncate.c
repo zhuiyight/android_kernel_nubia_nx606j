@@ -62,7 +62,7 @@ static void clear_exceptional_entry(struct address_space *mapping,
 	 * protected by mapping->tree_lock.
 	 */
 	if (!workingset_node_shadows(node) &&
-	    !list_empty(&node->private_list) && (node->private_list.next!=NULL) && (node->private_list.prev!=NULL))
+	    !list_empty(&node->private_list))
 		list_lru_del(&workingset_shadow_nodes,
 				&node->private_list);
 	__radix_tree_delete_node(&mapping->page_tree, node);
@@ -443,9 +443,13 @@ void truncate_inode_pages_final(struct address_space *mapping)
 		 */
 		spin_lock_irq(&mapping->tree_lock);
 		spin_unlock_irq(&mapping->tree_lock);
-
-		truncate_inode_pages(mapping, 0);
 	}
+
+	/*
+	 * Cleancache needs notification even if there are no pages or shadow
+	 * entries.
+	 */
+	truncate_inode_pages(mapping, 0);
 }
 EXPORT_SYMBOL(truncate_inode_pages_final);
 

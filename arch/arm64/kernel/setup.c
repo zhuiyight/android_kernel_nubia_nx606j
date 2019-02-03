@@ -3,6 +3,7 @@
  *
  * Copyright (C) 1995-2001 Russell King
  * Copyright (C) 2012 ARM Ltd.
+ * Copyright (C) 2018 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -65,6 +66,16 @@
 #include <asm/efi.h>
 #include <asm/xen/hypervisor.h>
 #include <asm/mmu_context.h>
+#include <asm/system_misc.h>
+#include <asm/bootinfo.h>
+
+#ifdef CONFIG_OF_FLATTREE
+void __init early_init_dt_setup_pureason_arch(unsigned long pu_reason)
+{
+	set_powerup_reason(pu_reason);
+	pr_info("Powerup reason=0x%x\n", get_powerup_reason());
+}
+#endif
 
 phys_addr_t __fdt_pointer __initdata;
 
@@ -186,6 +197,11 @@ static void __init smp_build_mpidr_hash(void)
 		pr_warn("Large number of MPIDR hash buckets detected\n");
 }
 
+const char * __init __weak arch_read_machine_name(void)
+{
+	return of_flat_dt_get_machine_name();
+}
+
 static void __init setup_machine_fdt(phys_addr_t dt_phys)
 {
 	void *dt_virt = fixmap_remap_fdt(dt_phys);
@@ -201,7 +217,7 @@ static void __init setup_machine_fdt(phys_addr_t dt_phys)
 			cpu_relax();
 	}
 
-	machine_name = of_flat_dt_get_machine_name();
+	machine_name = arch_read_machine_name();
 	if (machine_name) {
 		dump_stack_set_arch_desc("%s (DT)", machine_name);
 		pr_info("Machine: %s\n", machine_name);
@@ -313,7 +329,7 @@ void __init setup_arch(char **cmdline_p)
 	 * faults in case uaccess_enable() is inadvertently called by the init
 	 * thread.
 	 */
-	init_task.thread_info.ttbr0 = virt_to_phys(empty_zero_page);
+	init_task.thread_info.ttbr0 = __pa_symbol(empty_zero_page);
 #endif
 
 #ifdef CONFIG_VT
