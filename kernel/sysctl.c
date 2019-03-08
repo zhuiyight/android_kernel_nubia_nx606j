@@ -1891,7 +1891,7 @@ static struct ctl_table fs_table[] = {
 		.maxlen		= sizeof(files_stat.max_files),
 		.mode		= 0644,
 		.proc_handler	= proc_doulongvec_minmax,
-		.extra1		= &zero_ul,
+		.extra1		= &zero,
 		.extra2		= &long_max,
 	},
 	{
