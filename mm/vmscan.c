@@ -3188,9 +3188,8 @@ static bool pgdat_balanced(pg_data_t *pgdat, int order, int classzone_idx)
 	 * need balancing by definition. This can happen if a zone-restricted
 	 * allocation tries to wake a remote kswapd.
 	 */
-	clear_bit(PGDAT_CONGESTED, &zone->zone_pgdat->flags);
-	clear_bit(PGDAT_DIRTY, &zone->zone_pgdat->flags);
-	clear_bit(PGDAT_WRITEBACK, &zone->zone_pgdat->flags);
+	if (mark == -1)
+		return true;
 
 	return false;
 }
@@ -3230,12 +3229,6 @@ static bool prepare_kswapd_sleep(pg_data_t *pgdat, int order, int classzone_idx)
 	/* Hopeless node, leave it to direct reclaim */
 	if (pgdat->kswapd_failures >= MAX_RECLAIM_RETRIES)
 		return true;
-
-	for (i = 0; i <= classzone_idx; i++) {
-		struct zone *zone = pgdat->node_zones + i;
-
-		if (!managed_zone(zone))
-			continue;
 
 	if (pgdat_balanced(pgdat, order, classzone_idx)) {
 		clear_pgdat_congested(pgdat);
@@ -3632,12 +3625,6 @@ void wakeup_kswapd(struct zone *zone, int order, enum zone_type classzone_idx)
 	/* Hopeless node, leave it to direct reclaim */
 	if (pgdat->kswapd_failures >= MAX_RECLAIM_RETRIES)
 		return;
-
-	/* Only wake kswapd if all zones are unbalanced */
-	for (z = 0; z <= classzone_idx; z++) {
-		zone = pgdat->node_zones + z;
-		if (!managed_zone(zone))
-			continue;
 
 	if (pgdat_balanced(pgdat, order, classzone_idx))
 		return;
