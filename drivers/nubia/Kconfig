@@ -23,7 +23,7 @@ config NUBIA_FINGERPRINT
 	 Say Y here if you have enable NUBIA_FINGERPRINT
 	 IF  unsure ,say N
 
-+config NUBIA_TOUCH
+config NUBIA_TOUCH
 	bool "NUBIA_TOUCH"
 	default n
 	help

@@ -34,6 +34,7 @@
 #include <linux/thread_info.h>
 
 #include <asm/cpufeature.h>
+#include <asm/kernel-pgtable.h>
 #include <asm/processor.h>
 #include <asm/ptrace.h>
 #include <asm/errno.h>
@@ -139,6 +140,115 @@ static inline unsigned long __range_ok(unsigned long addr, unsigned long size)
 	"	.align		3\n"					\
 	"	.long		(" #from " - .), (" #to " - .)\n"	\
 	"	.popsection\n"
+
+/*
+ * User access enabling/disabling.
+ */
+#ifdef CONFIG_ARM64_SW_TTBR0_PAN
+static inline void __uaccess_ttbr0_disable(void)
+{
+	unsigned long flags, ttbr;
+
+	local_irq_save(flags);
+	ttbr = read_sysreg(ttbr1_el1);
+	ttbr &= ~TTBR_ASID_MASK;
+	/* reserved_ttbr0 placed at the end of swapper_pg_dir */
+	write_sysreg(ttbr + SWAPPER_DIR_SIZE, ttbr0_el1);
+	isb();
+	/* Set reserved ASID */
+	write_sysreg(ttbr, ttbr1_el1);
+	isb();
+	local_irq_restore(flags);
+}
+
+static inline void __uaccess_ttbr0_enable(void)
+{
+	unsigned long flags, ttbr0, ttbr1;
+
+	/*
+	 * Disable interrupts to avoid preemption between reading the 'ttbr0'
+	 * variable and the MSR. A context switch could trigger an ASID
+	 * roll-over and an update of 'ttbr0'.
+	 */
+	local_irq_save(flags);
+	ttbr0 = READ_ONCE(current_thread_info()->ttbr0);
+
+	/* Restore active ASID */
+	ttbr1 = read_sysreg(ttbr1_el1);
+	ttbr1 &= ~TTBR_ASID_MASK;		/* safety measure */
+	ttbr1 |= ttbr0 & TTBR_ASID_MASK;
+	write_sysreg(ttbr1, ttbr1_el1);
+	isb();
+
+	/* Restore user page table */
+	write_sysreg(ttbr0, ttbr0_el1);
+	isb();
+	local_irq_restore(flags);
+}
+
+static inline bool uaccess_ttbr0_disable(void)
+{
+	if (!system_uses_ttbr0_pan())
+		return false;
+	__uaccess_ttbr0_disable();
+	return true;
+}
+
+static inline bool uaccess_ttbr0_enable(void)
+{
+	if (!system_uses_ttbr0_pan())
+		return false;
+	__uaccess_ttbr0_enable();
+	return true;
+}
+#else
+static inline bool uaccess_ttbr0_disable(void)
+{
+	return false;
+}
+
+static inline bool uaccess_ttbr0_enable(void)
+{
+	return false;
+}
+#endif
+
+#define __uaccess_disable(alt)						\
+do {									\
+	if (!uaccess_ttbr0_disable())					\
+		asm(ALTERNATIVE("nop", SET_PSTATE_PAN(1), alt,		\
+				CONFIG_ARM64_PAN));			\
+} while (0)
+
+#define __uaccess_enable(alt)						\
+do {									\
+	if (!uaccess_ttbr0_enable())					\
+		asm(ALTERNATIVE("nop", SET_PSTATE_PAN(0), alt,		\
+				CONFIG_ARM64_PAN));			\
+} while (0)
+
+static inline void uaccess_disable(void)
+{
+	__uaccess_disable(ARM64_HAS_PAN);
+}
+
+static inline void uaccess_enable(void)
+{
+	__uaccess_enable(ARM64_HAS_PAN);
+}
+
+/*
+ * These functions are no-ops when UAO is present.
+ */
+static inline void uaccess_disable_not_uao(void)
+{
+	__uaccess_disable(ARM64_ALT_PAN_NOT_UAO);
+}
+
+static inline void uaccess_enable_not_uao(void)
+{
+	__uaccess_enable(ARM64_ALT_PAN_NOT_UAO);
+}
 
 /*
  * Sanitise a uaccess pointer such that it becomes NULL if above the
@@ -390,11 +500,11 @@ extern __must_check long strnlen_user(const char __user *str, long n);
 #ifdef CONFIG_ARM64_SW_TTBR0_PAN
 	.macro	__uaccess_ttbr0_disable, tmp1
 	mrs	\tmp1, ttbr1_el1		// swapper_pg_dir
+	bic     \tmp1, \tmp1, #TTBR_ASID_MASK
 	add	\tmp1, \tmp1, #SWAPPER_DIR_SIZE	// reserved_ttbr0 at the end of swapper_pg_dir
 	msr	ttbr0_el1, \tmp1		// set reserved TTBR0_EL1
 	isb
 	sub     \tmp1, \tmp1, #SWAPPER_DIR_SIZE
-	bic     \tmp1, \tmp1, #TTBR_ASID_MASK
 	msr     ttbr1_el1, \tmp1                // set reserved ASID
 	isb
 	.endm
@@ -411,9 +521,11 @@ extern __must_check long strnlen_user(const char __user *str, long n);
 	isb
 	.endm
 
-	.macro	uaccess_ttbr0_disable, tmp1
+	.macro	uaccess_ttbr0_disable, tmp1, tmp2
 alternative_if_not ARM64_HAS_PAN
+	save_and_disable_irq \tmp2		// avoid preemption
 	__uaccess_ttbr0_disable \tmp1
+	restore_irq \tmp2
 alternative_else_nop_endif
 	.endm
 
@@ -425,7 +537,7 @@ alternative_if_not ARM64_HAS_PAN
 alternative_else_nop_endif
 	.endm
 #else
-	.macro	uaccess_ttbr0_disable, tmp1
+	.macro	uaccess_ttbr0_disable, tmp1, tmp2
 	.endm
 
 	.macro	uaccess_ttbr0_enable, tmp1, tmp2, tmp3
@@ -435,8 +547,8 @@ alternative_else_nop_endif
 /*
  * These macros are no-ops when UAO is present.
  */
-	.macro	uaccess_disable_not_uao, tmp1
-	uaccess_ttbr0_disable \tmp1
+	.macro	uaccess_disable_not_uao, tmp1, tmp2
+	uaccess_ttbr0_disable \tmp1, \tmp2
 alternative_if ARM64_ALT_PAN_NOT_UAO
 	SET_PSTATE_PAN(1)
 alternative_else_nop_endif
