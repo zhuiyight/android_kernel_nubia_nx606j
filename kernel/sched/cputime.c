@@ -4,6 +4,7 @@
 #include <linux/kernel_stat.h>
 #include <linux/static_key.h>
 #include <linux/context_tracking.h>
+#include <linux/cpufreq_times.h>
 #include "sched.h"
 #ifdef CONFIG_PARAVIRT
 #include <asm/paravirt.h>
@@ -79,6 +80,13 @@ void irqtime_account_irq(struct task_struct *curr)
 		irqtime_account_delta(irqtime, delta, CPUTIME_IRQ);
 	else if (in_serving_softirq() && curr != this_cpu_ksoftirqd())
 		irqtime_account_delta(irqtime, delta, CPUTIME_SOFTIRQ);
+	else
+		account = false;
+
+	if (account)
+		sched_account_irqtime(cpu, curr, delta, wallclock);
+	else if (curr != this_cpu_ksoftirqd())
+		sched_account_irqstart(cpu, curr, wallclock);
 }
 EXPORT_SYMBOL_GPL(irqtime_account_irq);
 
@@ -142,6 +150,9 @@ void account_user_time(struct task_struct *p, cputime_t cputime,
 
 	/* Account for user time used */
 	acct_account_cputime(p);
+
+	/* Account power usage for user time */
+	cpufreq_acct_update_power(p, cputime);
 }
 
 /*
@@ -192,6 +203,9 @@ void __account_system_time(struct task_struct *p, cputime_t cputime,
 
 	/* Account for system time used */
 	acct_account_cputime(p);
+
+	/* Account power usage for system time */
+	cpufreq_acct_update_power(p, cputime);
 }
 
 /*
