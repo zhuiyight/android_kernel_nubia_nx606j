@@ -1028,9 +1028,7 @@ void ext4_clear_inode(struct inode *inode)
 		jbd2_free_inode(EXT4_I(inode)->jinode);
 		EXT4_I(inode)->jinode = NULL;
 	}
-#ifdef CONFIG_EXT4_FS_ENCRYPTION
-	fscrypt_put_encryption_info(inode, NULL);
-#endif
+	fscrypt_put_encryption_info(inode);
 }
 
 static struct inode *ext4_nfs_get_inode(struct super_block *sb,
@@ -1192,11 +1190,6 @@ static unsigned ext4_max_namelen(struct inode *inode)
 		EXT4_NAME_LEN;
 }
 
-static inline bool ext4_is_encrypted(struct inode *inode)
-{
-	return ext4_encrypted_inode(inode);
-}
-
 static const struct fscrypt_operations ext4_cryptops = {
 	.key_prefix		= "ext4:",
 	.get_context		= ext4_get_context,
@@ -1204,7 +1197,6 @@ static const struct fscrypt_operations ext4_cryptops = {
 	.dummy_context		= ext4_dummy_context,
 	.empty_dir		= ext4_empty_dir,
 	.max_namelen		= ext4_max_namelen,
-	.is_encrypted       = ext4_is_encrypted,
 };
 #endif
 
