@@ -22,10 +22,6 @@
 #include <linux/exportfs.h>
 #include <linux/posix_acl.h>
 
-//Nubia FileObserver Begin
-#include "file_observer.h"
-//Nubia FileObserver End
-
 MODULE_AUTHOR("Miklos Szeredi <miklos@szeredi.hu>");
 MODULE_DESCRIPTION("Filesystem in Userspace");
 MODULE_LICENSE("GPL");
@@ -34,7 +30,7 @@ static struct kmem_cache *fuse_inode_cachep;
 struct list_head fuse_conn_list;
 DEFINE_MUTEX(fuse_mutex);
 
-static int set_global_limit(const char *val, struct kernel_param *kp);
+static int set_global_limit(const char *val, const struct kernel_param *kp);
 
 unsigned max_user_bgreq;
 module_param_call(max_user_bgreq, set_global_limit, param_get_uint,
@@ -834,7 +830,7 @@ static void sanitize_global_limit(unsigned *limit)
 		*limit = (1 << 16) - 1;
 }
 
-static int set_global_limit(const char *val, struct kernel_param *kp)
+static int set_global_limit(const char *val, const struct kernel_param *kp)
 {
 	int rv;
 
@@ -1392,10 +1388,6 @@ static int __init fuse_init(void)
 	sanitize_global_limit(&max_user_bgreq);
 	sanitize_global_limit(&max_user_congthresh);
 
-        //Nubia FileObserver Begin
-        fuse_init_file_observer();
-        //Nubia FileObserver End
-
 	return 0;
 
  err_sysfs_cleanup:
@@ -1411,10 +1403,6 @@ static int __init fuse_init(void)
 static void __exit fuse_exit(void)
 {
 	printk(KERN_DEBUG "fuse exit\n");
-
-        //Nubia FileObserver Begin
-        fuse_exit_file_observer();
-        //Nubia FileObserver End
 
 	fuse_ctl_cleanup();
 	fuse_sysfs_cleanup();
