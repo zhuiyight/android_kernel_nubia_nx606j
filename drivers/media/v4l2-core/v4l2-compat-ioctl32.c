@@ -393,7 +393,11 @@ static int get_v4l2_plane32(struct v4l2_plane __user *up,
 
 	if (copy_in_user(up, up32, 2 * sizeof(__u32)) ||
 	    copy_in_user(&up->data_offset, &up32->data_offset,
-			 sizeof(up->data_offset)))
+			 sizeof(up->data_offset)) ||
+	    copy_in_user(up->reserved, up32->reserved,
+			 sizeof(up->reserved)) ||
+	    copy_in_user(&up->length, &up32->length,
+			 sizeof(up->length)))
 		return -EFAULT;
 
 	switch (memory) {
@@ -425,7 +429,9 @@ static int put_v4l2_plane32(struct v4l2_plane __user *up,
 
 	if (copy_in_user(up32, up, 2 * sizeof(__u32)) ||
 	    copy_in_user(&up32->data_offset, &up->data_offset,
-			 sizeof(up->data_offset)))
+			 sizeof(up->data_offset)) ||
+	    copy_in_user(up32->reserved, up->reserved,
+			 sizeof(up32->reserved)))
 		return -EFAULT;
 
 	switch (memory) {
@@ -583,8 +589,6 @@ static int put_v4l2_buffer32(struct v4l2_buffer __user *kp,
 	struct v4l2_plane __user *uplane;
 	compat_caddr_t p;
 	int ret;
-	struct timeval time;
-	u32 memory, type, length;
 
 	if (!access_ok(VERIFY_WRITE, up, sizeof(*up)) ||
 	    assign_in_user(&up->index, &kp->index) ||
@@ -798,7 +802,6 @@ static int get_v4l2_ext_controls32(struct file *file,
 	u32 count;
 	u32 n;
 	compat_caddr_t p;
-	u32 count;
 
 	if (!access_ok(VERIFY_READ, up, sizeof(*up)) ||
 	    assign_in_user(&kp->which, &up->which) ||
@@ -1019,11 +1022,6 @@ static long do_video_ioctl(struct file *file, unsigned int cmd, unsigned long ar
 	u32 aux_space;
 	int compatible_arg = 1;
 	long err = 0;
-
-	karg = compat_alloc_user_space(sizeof(*karg));
-	if (karg == NULL) {
-		return -EFAULT;
-	}
 
 	/* First, convert the command. */
 	switch (cmd) {

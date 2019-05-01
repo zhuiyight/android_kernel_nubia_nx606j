@@ -3,7 +3,7 @@
  *
  * This code is based on drivers/scsi/ufs/ufshcd.h
  * Copyright (C) 2011-2013 Samsung India Software Operations
- * Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
  *
  * Authors:
  *	Santosh Yaraganavi <santosh.sy@samsung.com>
@@ -650,6 +650,11 @@ struct ufs_stats {
 	struct ufs_uic_err_reg_hist nl_err;
 	struct ufs_uic_err_reg_hist tl_err;
 	struct ufs_uic_err_reg_hist dme_err;
+	u32 pa_err_cnt_total;
+	u32 pa_err_cnt[UFS_EC_PA_MAX];
+	u32 dl_err_cnt_total;
+	u32 dl_err_cnt[UFS_EC_DL_MAX];
+	u32 dme_err_cnt;
 };
 
 /* UFS Host Controller debug print bitmask */
@@ -750,7 +755,7 @@ enum ufshcd_card_state {
  * @clk_list_head: UFS host controller clocks list node head
  * @pwr_info: holds current power mode
  * @max_pwr_info: keeps the device max valid pwm
- * @desc_size: descriptor sizes reported by device
+ * @hibern8_on_idle: UFS Hibern8 on idle related data
  * @urgent_bkops_lvl: keeps track of urgent bkops level for device
  * @is_urgent_bkops_lvl_checked: keeps track if the urgent bkops level for
  *  device is known or not.
@@ -972,7 +977,24 @@ struct ufs_hba {
 	enum bkops_status urgent_bkops_lvl;
 	bool is_urgent_bkops_lvl_checked;
 
+	/* sync b/w diff contexts */
+	struct rw_semaphore lock;
+	unsigned long shutdown_in_prog;
+
+	struct reset_control *core_reset;
+	/* If set, don't gate device ref_clk during clock gating */
+	bool no_ref_clk_gating;
+
+	int scsi_block_reqs_cnt;
+
+	bool full_init_linereset;
+	struct pinctrl *pctrl;
+
+	int latency_hist_enabled;
+	struct io_latency_state io_lat_read;
+	struct io_latency_state io_lat_write;
 	struct ufs_desc_size desc_size;
+	bool restore_needed;
 };
 
 static inline void ufshcd_mark_shutdown_ongoing(struct ufs_hba *hba)
@@ -1216,7 +1238,12 @@ int ufshcd_query_descriptor(struct ufs_hba *hba, enum query_opcode opcode,
 	enum desc_idn idn, u8 index, u8 selector, u8 *desc_buf, int *buf_len);
 
 int ufshcd_hold(struct ufs_hba *hba, bool async);
-void ufshcd_release(struct ufs_hba *hba);
+void ufshcd_release(struct ufs_hba *hba, bool no_sched);
+int ufshcd_wait_for_doorbell_clr(struct ufs_hba *hba, u64 wait_timeout_us);
+int ufshcd_change_power_mode(struct ufs_hba *hba,
+			     struct ufs_pa_layer_attr *pwr_mode);
+void ufshcd_abort_outstanding_transfer_requests(struct ufs_hba *hba,
+		int result);
 
 int ufshcd_map_desc_id_to_length(struct ufs_hba *hba, enum desc_idn desc_id,
 	int *desc_length);
