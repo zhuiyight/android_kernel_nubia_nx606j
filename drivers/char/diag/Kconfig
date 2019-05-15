@@ -24,13 +24,6 @@ config DIAG_OVER_USB
 	  traffic over USB. This allows for host side tools to parse and display
 	  Diag traffic from the USB endpoint.
 
-config NUBIA_DIAG_REBOOT_CMD
-	bool "Enable DIAG handle reboot cmd"
-        depends on ARCH_QCOM
-	default y
-	help
-	 This feature helps reboot cmd by diag.
-
 config DIAGFWD_BRIDGE_CODE
 	bool "Enable QSC/9K DIAG traffic over SMUX/HSIC"
 	depends on DIAG_CHAR
@@ -40,5 +33,12 @@ config DIAGFWD_BRIDGE_CODE
 	  SMUX/HSIC Transport Layer for DIAG Router. When the MHI/SMUX endpoints
 	  become available, this bridge driver enables DIAG traffic over MHI
 	  and SMUX.
+
+config DIAG_USES_SMD
+	bool "Enable diag internal interface over SMD"
+	depends on DIAG_CHAR && MSM_SMD
+	help
+	  Diag over SMD enables exchanging diagnostic information between
+	  application processor and peripherals over SDM.
 
 endmenu

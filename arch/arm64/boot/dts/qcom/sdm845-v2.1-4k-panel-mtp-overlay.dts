@@ -65,5 +65,3 @@
 	qcom,dsi-display-active;
 };
 
-#include NUBIA_OVERWRITE_DTSI_FILE
-

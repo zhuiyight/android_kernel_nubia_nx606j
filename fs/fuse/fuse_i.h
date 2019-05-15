@@ -103,9 +103,6 @@ struct fuse_inode {
 	/** Miscellaneous bits describing inode state */
 	unsigned long state;
 
-       //Nubia FileObserver Begin
-        __u32 mask;
-        //Nubia FileObserver End
 	/** Lock for serializing lookup and readdir for back compatibility*/
 	struct mutex mutex;
 };
@@ -121,14 +118,6 @@ enum {
 };
 
 struct fuse_conn;
-
-
-//Nubia FileObserver Begin
-struct fuse_file_creator {
-    uid_t uid;
-    pid_t pid;
-};
-//Nubia FileObserver End
 
 /** FUSE specific file data */
 struct fuse_file {
@@ -168,11 +157,6 @@ struct fuse_file {
 	/* the read write file */
 	struct file *passthrough_filp;
 	bool passthrough_enabled;
-
-        //Nubia FileObserver Begin
-        struct fuse_file_creator creator;
-        __u32 mask;
-        //Nubia FileObserver End
 };
 
 /** One input argument of a request */
@@ -884,6 +868,7 @@ void fuse_request_send_background_locked(struct fuse_conn *fc,
 
 /* Abort all requests */
 void fuse_abort_conn(struct fuse_conn *fc);
+void fuse_wait_aborted(struct fuse_conn *fc);
 
 /**
  * Invalidate inode attributes
@@ -997,8 +982,8 @@ int fuse_do_setattr(struct dentry *dentry, struct iattr *attr,
 
 void fuse_set_initialized(struct fuse_conn *fc);
 
-void fuse_unlock_inode(struct inode *inode);
-void fuse_lock_inode(struct inode *inode);
+void fuse_unlock_inode(struct inode *inode, bool locked);
+bool fuse_lock_inode(struct inode *inode);
 
 int fuse_setxattr(struct inode *inode, const char *name, const void *value,
 		  size_t size, int flags);

@@ -1,3 +1,0 @@
-obj-$(CONFIG_NUBIA_SENSORS_FP)			+= gf5288/
-
-

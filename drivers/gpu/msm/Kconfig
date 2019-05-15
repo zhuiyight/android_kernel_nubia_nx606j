@@ -24,11 +24,3 @@ config QCOM_ADRENO_DEFAULT_GOVERNOR
 config QCOM_KGSL_IOMMU
 	bool
 	default y if QCOM_KGSL && (MSM_IOMMU || ARM_SMMU)
-
-config NUBIA_LCD_KEEP_POWER_ON
-	bool "lcd keep power on at suspend"
-	default n
-	---help---
-	  incell panel needs lcd keep power on
-	  while tp wakeup gesture enable.
-
