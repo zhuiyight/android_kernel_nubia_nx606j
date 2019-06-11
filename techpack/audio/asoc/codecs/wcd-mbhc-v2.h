@@ -1,4 +1,5 @@
-/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2018 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,7 +24,7 @@
 #define WCD_MBHC_DEF_BUTTONS 8
 #define WCD_MBHC_KEYCODE_NUM 8
 #define WCD_MBHC_USLEEP_RANGE_MARGIN_US 100
-#define WCD_MBHC_THR_HS_MICB_MV  2750
+#define WCD_MBHC_THR_HS_MICB_MV  2700
 /* z value defined in Ohms */
 #define WCD_MONO_HS_MIN_THR	2
 #define WCD_MBHC_STRINGIFY(s)  __stringify(s)
@@ -141,13 +142,14 @@ do {                                                    \
 #define HS_DETECT_PLUG_TIME_MS (3 * 1000)
 #define SPECIAL_HS_DETECT_TIME_MS (2 * 1000)
 #define MBHC_BUTTON_PRESS_THRESHOLD_MIN 250
-#define GND_MIC_SWAP_THRESHOLD 2
+#define GND_MIC_SWAP_THRESHOLD 4
 #define GND_MIC_USBC_SWAP_THRESHOLD 2
-#define WCD_FAKE_REMOVAL_MIN_PERIOD_MS 150
+#define WCD_FAKE_REMOVAL_MIN_PERIOD_MS 100
 #define HS_VREF_MIN_VAL 1400
 #define FW_READ_ATTEMPTS 15
 #define FW_READ_TIMEOUT 4000000
-#define FAKE_REM_RETRY_ATTEMPTS 10
+#define FAKE_REM_RETRY_ATTEMPTS 3
+#define MAX_IMPED 60000
 
 #define WCD_MBHC_BTN_PRESS_COMPL_TIMEOUT_MS  50
 #define ANC_DETECT_RETRY_CNT 7
@@ -410,9 +412,15 @@ struct usbc_ana_audio_config {
 	int usbc_en1_gpio;
 	int usbc_en2_gpio;
 	int usbc_force_gpio;
+	int euro_us_hw_switch_gpio;
+	int uart_audio_switch_gpio;
+	int subpcb_id_gpio;
 	struct device_node *usbc_en1_gpio_p; /* used by pinctrl API */
 	struct device_node *usbc_en2_gpio_p; /* used by pinctrl API */
 	struct device_node *usbc_force_gpio_p; /* used by pinctrl API */
+	struct device_node *euro_us_hw_switch_gpio_p; /* used by pinctrl API */
+	struct device_node *uart_audio_switch_gpio_p; /* used by pinctrl API */
+	struct device_node *subpcb_id_gpio_p; /* used by pinctrl API */
 };
 
 struct wcd_mbhc_config {
@@ -431,6 +439,8 @@ struct wcd_mbhc_config {
 	bool enable_anc_mic_detect;
 	u32 enable_usbc_analog;
 	struct usbc_ana_audio_config usbc_analog_cfg;
+	void (*enable_dual_adc_gpio)(struct device_node *node, bool en);
+	struct device_node *dual_adc_gpio_node;
 };
 
 struct wcd_mbhc_intr {
@@ -525,7 +535,7 @@ struct wcd_mbhc {
 	bool gnd_swh; /*track GND switch NC / NO */
 	u32 hs_thr;
 	u32 hph_thr;
-	u32 micb2_mv;
+	u32 micb_mv;
 	u32 swap_thr;
 	u32 moist_vref;
 	u32 moist_iref;
@@ -537,7 +547,6 @@ struct wcd_mbhc {
 	bool btn_press_intr;
 	bool is_hs_recording;
 	bool is_extn_cable;
-	bool extn_cable_inserted;
 	bool skip_imped_detection;
 	bool is_btn_already_regd;
 	bool extn_cable_hph_rem;

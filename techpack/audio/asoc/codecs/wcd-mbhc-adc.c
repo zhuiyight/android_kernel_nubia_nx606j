@@ -1,4 +1,5 @@
 /* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2018 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -33,6 +34,7 @@
 #define WCD_MBHC_ADC_HS_THRESHOLD_MV    1700
 #define WCD_MBHC_ADC_HPH_THRESHOLD_MV   75
 #define WCD_MBHC_ADC_MICBIAS_MV         1800
+#define WCD_MBHC_FAKE_INS_RETRY         4
 
 static int wcd_mbhc_get_micbias(struct wcd_mbhc *mbhc)
 {
@@ -355,11 +357,11 @@ static int wcd_mbhc_adc_get_hs_thres(struct wcd_mbhc *mbhc)
 
 	micbias_mv = wcd_mbhc_get_micbias(mbhc);
 	if (mbhc->hs_thr) {
-		if (mbhc->micb2_mv == micbias_mv)
+		if (mbhc->micb_mv == micbias_mv)
 			hs_threshold = mbhc->hs_thr;
 		else
 			hs_threshold = (mbhc->hs_thr *
-				micbias_mv) / mbhc->micb2_mv;
+				micbias_mv) / mbhc->micb_mv;
 	} else {
 		hs_threshold = ((WCD_MBHC_ADC_HS_THRESHOLD_MV *
 			micbias_mv) / WCD_MBHC_ADC_MICBIAS_MV);
@@ -373,11 +375,11 @@ static int wcd_mbhc_adc_get_hph_thres(struct wcd_mbhc *mbhc)
 
 	micbias_mv = wcd_mbhc_get_micbias(mbhc);
 	if (mbhc->hph_thr) {
-		if (mbhc->micb2_mv == micbias_mv)
+		if (mbhc->micb_mv == micbias_mv)
 			hph_threshold = mbhc->hph_thr;
 		else
 			hph_threshold = (mbhc->hph_thr *
-				micbias_mv) / mbhc->micb2_mv;
+				micbias_mv) / mbhc->micb_mv;
 	} else {
 		hph_threshold = ((WCD_MBHC_ADC_HPH_THRESHOLD_MV *
 			micbias_mv) / WCD_MBHC_ADC_MICBIAS_MV);
@@ -502,18 +504,15 @@ static bool wcd_is_special_headset(struct wcd_mbhc *mbhc)
 static void wcd_mbhc_adc_update_fsm_source(struct wcd_mbhc *mbhc,
 				       enum wcd_mbhc_plug_type plug_type)
 {
-	bool micbias2;
-
-	micbias2 = mbhc->mbhc_cb->micbias_enable_status(mbhc,
-							MIC_BIAS_2);
 	switch (plug_type) {
 	case MBHC_PLUG_TYPE_HEADPHONE:
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_BTN_ISRC_CTL, 3);
 		break;
 	case MBHC_PLUG_TYPE_HEADSET:
 	case MBHC_PLUG_TYPE_ANC_HEADPHONE:
-		if (!mbhc->is_hs_recording && !micbias2)
-			WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_BTN_ISRC_CTL, 3);
+		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_BTN_ISRC_CTL, 0);
+		mbhc->mbhc_cb->mbhc_micbias_control(mbhc->codec,
+				MIC_BIAS_2, MICB_PULLUP_ENABLE);
 		break;
 	default:
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_BTN_ISRC_CTL, 0);
@@ -629,10 +628,6 @@ static void wcd_correct_swch_plug(struct work_struct *work)
 	mbhc = container_of(work, struct wcd_mbhc, correct_plug_swch);
 	codec = mbhc->codec;
 
-	/* Wait for debounce time 200ms for extension cable */
-	if (mbhc->extn_cable_inserted)
-		msleep(200);
-
 	micbias_mv = wcd_mbhc_get_micbias(mbhc);
 	hs_threshold = wcd_mbhc_adc_get_hs_thres(mbhc);
 
@@ -716,10 +711,11 @@ correct_plug_type:
 		    (spl_hs_count < WCD_MBHC_SPL_HS_CNT)) {
 			spl_hs = wcd_mbhc_adc_check_for_spl_headset(mbhc,
 								&spl_hs_count);
+			output_mv = wcd_measure_adc_once(mbhc, MUX_CTL_IN2P);
 
 			if (spl_hs_count == WCD_MBHC_SPL_HS_CNT) {
 				hs_threshold = (hs_threshold *
-					wcd_mbhc_get_micbias(mbhc)) / micbias_mv;
+				     wcd_mbhc_get_micbias(mbhc)) / micbias_mv;
 				spl_hs = true;
 				mbhc->micbias_enable = true;
 			}
@@ -727,8 +723,6 @@ correct_plug_type:
 
 		if (mbhc->mbhc_cb->hph_pa_on_status)
 			is_pa_on = mbhc->mbhc_cb->hph_pa_on_status(mbhc->codec);
-
-		output_mv = wcd_measure_adc_once(mbhc, MUX_CTL_IN2P);
 
 		if ((output_mv <= hs_threshold) &&
 		    (!is_pa_on)) {
@@ -949,9 +943,7 @@ static irqreturn_t wcd_mbhc_adc_hs_rem_irq(int irq, void *data)
 
 	timeout = jiffies +
 		  msecs_to_jiffies(WCD_FAKE_REMOVAL_MIN_PERIOD_MS);
-	adc_threshold = ((WCD_MBHC_ADC_HS_THRESHOLD_MV *
-			  wcd_mbhc_get_micbias(mbhc)) /
-			  WCD_MBHC_ADC_MICBIAS_MV);
+
 	do {
 		retry++;
 		/*
@@ -959,6 +951,7 @@ static irqreturn_t wcd_mbhc_adc_hs_rem_irq(int irq, void *data)
 		 * any change in IN2_P
 		 */
 		usleep_range(10000, 10100);
+		adc_threshold = wcd_mbhc_adc_get_hs_thres(mbhc);
 		output_mv = wcd_measure_adc_once(mbhc, MUX_CTL_IN2P);
 
 		pr_debug("%s: Check for fake removal: output_mv %d\n",
@@ -1022,6 +1015,7 @@ static irqreturn_t wcd_mbhc_adc_hs_rem_irq(int irq, void *data)
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_ADC_MODE, 0);
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_ADC_EN, 0);
 		wcd_mbhc_elec_hs_report_unplug(mbhc);
+		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_BTN_ISRC_CTL, 0);
 
 		if (hphpa_on) {
 			hphpa_on = false;
@@ -1038,8 +1032,8 @@ exit:
 static irqreturn_t wcd_mbhc_adc_hs_ins_irq(int irq, void *data)
 {
 	struct wcd_mbhc *mbhc = data;
-	u8 state = 0;
-	u8 retry = 4;
+	u8 clamp_state = 0;
+	u8 clamp_retry = WCD_MBHC_FAKE_INS_RETRY;
 
 	pr_debug("%s: enter\n", __func__);
 
@@ -1055,13 +1049,17 @@ static irqreturn_t wcd_mbhc_adc_hs_ins_irq(int irq, void *data)
 	}
 
 	do {
-		WCD_MBHC_REG_READ(WCD_MBHC_IN2P_CLAMP_STATE, state);
-		if (state) {
+		WCD_MBHC_REG_READ(WCD_MBHC_IN2P_CLAMP_STATE, clamp_state);
+		if (clamp_state) {
 			pr_debug("%s: fake insertion irq, leave\n", __func__);
 			return IRQ_HANDLED;
 		}
+		/*
+		 * check clamp for 120ms but at 30ms chunks to leave
+		 * room for other interrupts to be processed
+		 */
 		usleep_range(30000, 30100);
-	} while (--retry);
+	} while (--clamp_retry);
 
 	WCD_MBHC_RSC_LOCK(mbhc);
 	/*
@@ -1090,7 +1088,6 @@ static irqreturn_t wcd_mbhc_adc_hs_ins_irq(int irq, void *data)
 	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_ELECT_SCHMT_ISRC, 0);
 	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_ELECT_ISRC_EN, 0);
 	mbhc->is_extn_cable = true;
-	mbhc->extn_cable_inserted = true;
 	mbhc->btn_press_intr = false;
 	wcd_mbhc_adc_detect_plug_type(mbhc);
 	WCD_MBHC_RSC_UNLOCK(mbhc);

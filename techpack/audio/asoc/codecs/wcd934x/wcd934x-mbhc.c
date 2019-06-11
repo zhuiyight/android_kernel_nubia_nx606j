@@ -1,5 +1,4 @@
-/*
- * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -493,7 +492,7 @@ static inline void tavil_mbhc_get_result_params(struct wcd9xxx *wcd9xxx,
 	if ((c1 < 2) && x1)
 		usleep_range(5000, 5050);
 
-	if (!c1) {
+	if (!c1 || !x1) {
 		dev_dbg(wcd9xxx->dev,
 			"%s: Impedance detect ramp error, c1=%d, x1=0x%x\n",
 			__func__, c1, x1);
@@ -987,6 +986,26 @@ int tavil_mbhc_get_impedance(struct wcd934x_mbhc *wcd934x_mbhc,
 }
 EXPORT_SYMBOL(tavil_mbhc_get_impedance);
 
+int tavil_mb_pull_down(struct snd_soc_codec *codec, bool active,
+		int value)
+{
+	int old_value = 0;
+
+	if (active) {
+		old_value = snd_soc_read(codec, WCD934X_ANA_MICB2);
+		snd_soc_update_bits(codec, WCD934X_ANA_MBHC_ELECT,
+				0x80, 0x00);
+		snd_soc_update_bits(codec, WCD934X_ANA_MICB2, 0xC0, 0xC0);
+	} else {
+		snd_soc_write(codec, WCD934X_ANA_MICB2, value);
+		snd_soc_update_bits(codec, WCD934X_ANA_MBHC_ELECT,
+				0x80, 0x80);
+	}
+
+	return old_value;
+}
+EXPORT_SYMBOL(tavil_mb_pull_down);
+
 /*
  * tavil_mbhc_hs_detect: starts mbhc insertion/removal functionality
  * @codec: handle to snd_soc_codec *
@@ -1079,6 +1098,7 @@ int tavil_mbhc_init(struct wcd934x_mbhc **mbhc, struct snd_soc_codec *codec,
 	struct wcd934x_mbhc *wcd934x_mbhc;
 	struct wcd_mbhc *wcd_mbhc;
 	int ret;
+	struct wcd9xxx_pdata *pdata;
 
 	wcd934x_mbhc = devm_kzalloc(codec->dev, sizeof(struct wcd934x_mbhc),
 				    GFP_KERNEL);
@@ -1098,6 +1118,14 @@ int tavil_mbhc_init(struct wcd934x_mbhc **mbhc, struct snd_soc_codec *codec,
 
 	/* Setting default mbhc detection logic to ADC for Tavil */
 	wcd_mbhc->mbhc_detection_logic = WCD_DETECTION_ADC;
+
+	pdata = dev_get_platdata(codec->dev->parent);
+	if (!pdata) {
+		dev_err(codec->dev, "%s: pdata pointer is NULL\n", __func__);
+		ret = -EINVAL;
+		goto err;
+	}
+	wcd_mbhc->micb_mv = pdata->micbias.micb2_mv;
 
 	ret = wcd_mbhc_init(wcd_mbhc, codec, &mbhc_cb,
 				&intr_ids, wcd_mbhc_registers,

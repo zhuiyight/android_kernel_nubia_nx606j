@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -326,6 +326,14 @@ static int wcd_cpe_load_each_segment(struct wcd_cpe_core *core,
 	else {
 		dev_err(core->dev, "%s invalid flags 0x%x\n",
 			__func__, phdr->p_flags);
+		goto done;
+	}
+
+	if (phdr->p_filesz != split_fw->size) {
+		dev_err(core->dev,
+			"%s: %s size mismatch, phdr_size: 0x%x fw_size: 0x%zx",
+			__func__, split_fname, phdr->p_filesz, split_fw->size);
+		ret = -EINVAL;
 		goto done;
 	}
 
@@ -819,8 +827,6 @@ static int wcd_cpe_enable(struct wcd_cpe_core *core,
 		bool enable)
 {
 	int ret = 0;
-	int timeout = 0;
-	int err_cnt = 0;
 
 	if (enable) {
 		/* Reset CPE first */
@@ -843,19 +849,8 @@ static int wcd_cpe_enable(struct wcd_cpe_core *core,
 		if (ret)
 			goto fail_boot;
 
-		for (err_cnt = 0; err_cnt < 10; err_cnt++) {
-			/* Dload data section */
-			ret = wcd_cpe_load_fw(core, ELF_FLAG_RW);
-			if (ret) {
-				pr_err("%s: wcd_cpe_load_fw error ret=%d. retry.\n", __func__, ret);
-				msleep(5);
-			} else {
-				if (err_cnt > 0) {
-					pr_err("%s: wcd_cpe_load_fw error count=%d.\n", __func__, err_cnt);
-				}
-				break;
-			}
-		}
+		/* Dload data section */
+		ret = wcd_cpe_load_fw(core, ELF_FLAG_RW);
 		if (ret) {
 			dev_err(core->dev,
 				"%s: Failed to dload data section, err = %d\n",
@@ -884,18 +879,9 @@ static int wcd_cpe_enable(struct wcd_cpe_core *core,
 		dev_dbg(core->dev,
 			"%s: waiting for CPE bootup\n",
 			__func__);
-#if 0
+
 		wait_for_completion(&core->online_compl);
-#else
-		timeout = wait_for_completion_timeout(&core->online_compl, msecs_to_jiffies(1000));
-		if (!timeout) {
-			dev_err(core->dev,
-				"%s: Timeout boot CPE.\n",
-				__func__);
-			ret = -ETIMEDOUT;
-			goto fail_boot;
-		}
-#endif
+
 		dev_dbg(core->dev,
 			"%s: CPE bootup done\n",
 			__func__);
@@ -1958,6 +1944,7 @@ struct wcd_cpe_core *wcd_cpe_init(const char *img_fname,
 	init_completion(&core->online_compl);
 	init_waitqueue_head(&core->ssr_entry.offline_poll_wait);
 	mutex_init(&core->ssr_lock);
+	mutex_init(&core->session_lock);
 	core->cpe_users = 0;
 	core->cpe_clk_ref = 0;
 
@@ -3409,6 +3396,7 @@ static struct cpe_lsm_session *wcd_cpe_alloc_lsm_session(
 	 * If this is the first session to be allocated,
 	 * only then register the afe service.
 	 */
+	WCD_CPE_GRAB_LOCK(&core->session_lock, "session_lock");
 	if (!wcd_cpe_lsm_session_active())
 		afe_register_service = true;
 
@@ -3423,6 +3411,7 @@ static struct cpe_lsm_session *wcd_cpe_alloc_lsm_session(
 		dev_err(core->dev,
 			"%s: max allowed sessions already allocated\n",
 			__func__);
+		WCD_CPE_REL_LOCK(&core->session_lock, "session_lock");
 		return NULL;
 	}
 
@@ -3431,6 +3420,7 @@ static struct cpe_lsm_session *wcd_cpe_alloc_lsm_session(
 		dev_err(core->dev,
 			"%s: Failed to enable cpe, err = %d\n",
 			__func__, ret);
+		WCD_CPE_REL_LOCK(&core->session_lock, "session_lock");
 		return NULL;
 	}
 
@@ -3473,6 +3463,8 @@ static struct cpe_lsm_session *wcd_cpe_alloc_lsm_session(
 	init_completion(&session->cmd_comp);
 
 	lsm_sessions[session_id] = session;
+
+	WCD_CPE_REL_LOCK(&core->session_lock, "session_lock");
 	return session;
 
 err_afe_mode_cmd:
@@ -3487,6 +3479,7 @@ err_ret:
 
 err_session_alloc:
 	wcd_cpe_vote(core, false);
+	WCD_CPE_REL_LOCK(&core->session_lock, "session_lock");
 	return NULL;
 }
 
@@ -3637,9 +3630,11 @@ static int wcd_cpe_dealloc_lsm_session(void *core_handle,
 	struct wcd_cpe_core *core = core_handle;
 	int ret = 0;
 
+	WCD_CPE_GRAB_LOCK(&core->session_lock, "session_lock");
 	if (!session) {
 		dev_err(core->dev,
 			"%s: Invalid lsm session\n", __func__);
+		WCD_CPE_REL_LOCK(&core->session_lock, "session_lock");
 		return -EINVAL;
 	}
 
@@ -3650,6 +3645,7 @@ static int wcd_cpe_dealloc_lsm_session(void *core_handle,
 			"%s: Wrong session id %d max allowed = %d\n",
 			__func__, session->id,
 			WCD_CPE_LSM_MAX_SESSIONS);
+		WCD_CPE_REL_LOCK(&core->session_lock, "session_lock");
 		return -EINVAL;
 	}
 
@@ -3670,6 +3666,7 @@ static int wcd_cpe_dealloc_lsm_session(void *core_handle,
 			"%s: Failed to un-vote cpe, err = %d\n",
 			__func__, ret);
 
+	WCD_CPE_REL_LOCK(&core->session_lock, "session_lock");
 	return ret;
 }
 

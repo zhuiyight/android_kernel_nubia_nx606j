@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -680,81 +680,6 @@ struct audproc_enable_param_t {
 	uint32_t                  enable;
 };
 
-#define AUDPROC_MODULE_ID_BE_VOL_LIMITER_1  0x10002110
-#define AUDPROC_MODULE_ID_BE_VOL_LIMITER_6  0x10002160
-#define AUDPROC_PARAM_ID_BE_VOL_ENABLE      0x10002101
-#define AUDPROC_PARAM_ID_BE_VOL_CTRL        0x10002102
-
-struct audproc_beat_enhancer_volume_params {
-	struct adm_cmd_set_pp_params_v5 params;
-	struct adm_param_data_v5 data;
-	uint32_t	volume_l;
-	uint32_t	volume_r;
-} __packed;
-
-#define AUDPROC_MODULE_ID_INV_VOL_CTRL  0x10002200
-#define AUDPROC_PARAM_ID_INV_VOL_ENABLE 0x10002201
-#define AUDPROC_PARAM_ID_INV_VOL_CTRL   0x10002202
-
-struct audproc_inverse_audio_volume_params {
-	struct adm_cmd_set_pp_params_v5 params;
-	struct adm_param_data_v5 data;
-	uint32_t	volume_l;
-	uint32_t	volume_r;
-} __packed;
-
-#define AUDPROC_MODULE_ID_LOG10GAIN              0x10002080
-#define AUDPROC_PARAM_ID_LOG10GAIN_ENABLE        0x10002081
-
-#define AUDPROC_MODULE_ID_NOISE_CUT              0x10002060
-#define AUDPROC_PARAM_ID_NOISE_CUT_ENABLE        0x10002061
-
-#define AUDPROC_MODULE_ID_NEGATIVE_CUT           0x10002040
-#define AUDPROC_PARAM_ID_NEGATIVE_CUT_ENABLE     0x10002041
-
-#define AUDPROC_MODULE_ID_VOLUME_LIMITER         0x10002100
-#define AUDPROC_MODULE_ID_VOLUME_LIMITER_2       0x10002120
-#define AUDPROC_MODULE_ID_VOLUME_LIMITER_3       0x10002130
-#define AUDPROC_MODULE_ID_VOLUME_LIMITER_4       0x10002140
-#define AUDPROC_MODULE_ID_VOLUME_LIMITER_5       0x10002150
-
-#define AUDPROC_MODULE_ID_DUAL_MONO              0x10002030
-#define AUDPROC_MODULE_ID_DUAL_MONO1             0x10012030
-#define AUDPROC_PARAM_ID_DUAL_MONO_ENABLE        0x10002031
-
-#define AUDPROC_MODULE_ID_ABS                    0x10002020
-#define AUDPROC_PARAM_ID_ABS_ENABLE              0x10002021
-
-#define AUDPROC_MODULE_ID_ADD1                   0x10002050
-#define AUDPROC_PARAM_ID_ADD1_ENABLE             0x10002051
-
-#define AUDPROC_MODULE_ID_FORMAT_CONVERTER       0x10005000
-#define AUDPROC_PARAM_ID_FORMAT_CONVERTER_ENABLE 0x10005001
-
-#define AUDPROC_MODULE_ID_MCHAN_IIR_2            0x1011031F
-#define AUDPROC_MODULE_ID_MCHAN_IIR_3            0x1021031F
-#define AUDPROC_MODULE_ID_MCHAN_IIR_4            0x1031031F
-#define AUDPROC_MODULE_ID_MCHAN_IIR_5            0x1041031F
-#define AUDPROC_PARAM_ID_MCHAN_IIR_ENABLE        0x0001031C
-
-#define AUDPROC_MODULE_ID_DELAY                  0x10004000
-#define AUDPROC_MODULE_ID_DELAY_1                0x10004010
-#define AUDPROC_PARAM_ID_DELAY_ENABLE            0x10004001
-
-struct audproc_enable_module_mono {
-	struct adm_cmd_set_pp_params_v5 params;
-	struct adm_param_data_v5 data;
-	uint32_t	enable_flag;
-} __packed;
-
-struct audproc_enable_module_stereo {
-	struct adm_cmd_set_pp_params_v5 params;
-	struct adm_param_data_v5 data;
-	uint32_t	num_channels;
-	uint32_t	enable_left;
-	uint32_t	enable_right;
-} __packed;
-
 /*
  * Allows a client to control the gains on various session-to-COPP paths.
  */
@@ -887,7 +812,6 @@ struct adm_session_copp_gain_v5 {
 
 /*  Payload of the #ADM_CMD_MATRIX_MUTE_V5 command*/
 struct adm_cmd_matrix_mute_v5 {
-	struct apr_hdr	hdr;
 	u32                  matrix_id;
 /* Specifies whether the matrix ID is Audio Rx (0) or Audio Tx (1).
  * Use the ADM_MATRIX_ID_AUDIO_RX or  ADM_MATRIX_ID_AUDIOX
@@ -3150,6 +3074,76 @@ struct afe_param_id_set_topology_cfg {
 	u32		topology_id;
 } __packed;
 
+#define MAX_ABR_LEVELS 5
+
+struct afe_bit_rate_level_map_t {
+	/*
+	 * Key value pair for link quality level to bitrate
+	 * mapping in AFE
+	 */
+	uint32_t link_quality_level;
+	uint32_t bitrate;
+} __packed;
+
+struct afe_quality_level_to_bitrate_info {
+	/*
+	 * Number of quality levels being mapped.
+	 * This will be equal to the size of mapping table.
+	 */
+	uint32_t num_levels;
+	/*
+	 * Quality level to bitrate mapping table
+	 */
+	struct afe_bit_rate_level_map_t bit_rate_level_map[MAX_ABR_LEVELS];
+} __packed;
+
+struct afe_imc_dec_enc_info {
+	/*
+	 * Decoder to encoder communication direction.
+	 * Transmit = 0 / Receive = 1
+	 */
+	uint32_t direction;
+	/*
+	 * Enable / disable IMC between decoder and encoder
+	 */
+	uint32_t enable;
+	/*
+	 * Purpose of IMC being set up between decoder and encoder.
+	 * Param ID defined for link quality feedback in LPASS will
+	 * be the default value sent as purpose.
+	 * Supported values:
+	 * AFE_ENCDEC_PURPOSE_ID_BT_INFO
+	 */
+	uint32_t purpose;
+	/*
+	 * Unique communication instance ID.
+	 * Data type a2dp_abr_instance used to set instance ID.
+	 * purpose and comm_instance together form the actual key
+	 * used in IMC registration, which must be the same for
+	 * encoder and decoder for which IMC is being set up.
+	 */
+	uint32_t comm_instance;
+} __packed;
+
+struct afe_abr_dec_cfg_t {
+	struct afe_imc_dec_enc_info imc_info;
+} __packed;
+
+struct afe_abr_enc_cfg_t {
+	/*
+	 * Link quality level to bitrate mapping info sent to DSP.
+	 */
+	struct afe_quality_level_to_bitrate_info mapping_info;
+	/*
+	 * Information to set up IMC between decoder and encoder.
+	 */
+	struct afe_imc_dec_enc_info imc_info;
+	/*
+	 * Flag to indicate whether ABR is enabled.
+	 */
+	bool is_abr_enabled;
+} __packed;
+
 #define AFE_PARAM_ID_APTX_SYNC_MODE  0x00013205
 
 struct afe_param_id_aptx_sync_mode {
@@ -3201,16 +3195,49 @@ struct afe_param_id_aptx_sync_mode {
 #define AFE_ENCODER_PARAM_ID_ENABLE_SCRAMBLING         0x0001323C
 
 /*
- * Encoder bitrate parameter for the #AVS_ENCODER_PARAM_ID_ENC_BITRATE module.
+ * Link quality level to bitrate mapping info sent to AFE Encoder.
  * This parameter may be set runtime.
  */
-#define AVS_ENCODER_PARAM_ID_ENC_BITRATE        0x0001322D
+#define AFE_ENCODER_PARAM_ID_BIT_RATE_LEVEL_MAP        0x000132E1
+
+/*
+ * Parameter to set up Inter Module Communication (IMC) between
+ * AFE Decoder and Encoder.
+ * This parameter may be set runtime.
+ */
+#define AFE_ENCDEC_PARAM_ID_DEC_TO_ENC_COMMUNICATION        0x0001323D
+
+/*
+ * Purpose of IMC set up between encoder and decoder.
+ * Communication instance and purpose together form the
+ * actual key used for IMC registration.
+ */
+#define AFE_ENCDEC_PURPOSE_ID_BT_INFO        0x000132E2
+
+#define AFE_MODULE_ID_DECODER        0x00013231
+
+/*
+ * Macro for defining the depacketizer ID: COP.
+ */
+#define AFE_MODULE_ID_DEPACKETIZER_COP        0x00013233
+
+/*
+ * Depacketizer type parameter for the #AVS_MODULE_ID_DECODER module.
+ * This parameter cannot be set runtime.
+ */
+#define AFE_DECODER_PARAM_ID_DEPACKETIZER_ID        0x00013235
 
 /*
  * Data format to send compressed data
  * is transmitted/received over Slimbus lines.
  */
 #define AFE_SB_DATA_FORMAT_GENERIC_COMPRESSED    0x3
+
+/*
+ * Parameter to send frame control size
+ * to DSP for AAC encoder in AFE.
+ */
+#define AFE_PARAM_ID_AAC_FRM_SIZE_CONTROL 0x000132EA
 
 /*
  * ID for AFE port module. This will be used to define port properties.
@@ -3382,6 +3409,23 @@ struct asm_aac_enc_cfg_v2_t {
 	uint32_t     sample_rate;
 } __packed;
 
+/* Structure to control frame size of AAC encoded frames. */
+struct asm_aac_frame_size_control_t {
+	/* Type of frame size control: MTU_SIZE / PEAK_BIT_RATE*/
+	uint32_t ctl_type;
+	/*
+	 * Control value
+	 * MTU_SIZE: MTU size in bytes
+	 * PEAK_BIT_RATE: Peak bitrate in bits per second.
+	 */
+	uint32_t ctl_value;
+} __packed;
+
+struct asm_aac_enc_cfg_t {
+	struct asm_aac_enc_cfg_v2_t aac_cfg;
+	struct asm_aac_frame_size_control_t frame_ctl;
+} __packed;
+
 /* FMT ID for apt-X Classic */
 #define ASM_MEDIA_FMT_APTX 0x000131ff
 
@@ -3465,20 +3509,49 @@ struct asm_celt_enc_cfg_t {
 	struct asm_celt_specific_enc_cfg_t  celt_specific_config;
 } __packed;
 
-#define ASM_MEDIA_FMT_LDAC 0x00012D19
-
-struct asm_custom_enc_cfg_ldac_t {
-	uint32_t    sample_rate;
-	/* Mono or stereo */
-	uint16_t    num_channels;
-	uint16_t    mtu_size;
-	/* num_ch == 1, then PCM_CHANNEL_C,
-	 * num_ch == 2, then {PCM_CHANNEL_L, PCM_CHANNEL_R}
+#define ASM_MEDIA_FMT_LDAC 0x00013224
+struct asm_ldac_specific_enc_cfg_t {
+	/*
+	 * This is used to calculate the encoder output
+	 * bytes per frame (i.e. bytes per packet).
+	 * Bit rate also configures the EQMID.
+	 * The min bit rate 303000 bps is calculated for
+	 * 44.1 kHz and 88.2 KHz sampling frequencies with
+	 * Mobile use Quality.
+	 * The max bit rate of 990000 bps is calculated for
+	 * 96kHz and 48 KHz with High Quality
+	 * @Range(in bits per second)
+	 * 303000 for Mobile use Quality
+	 * 606000 for standard Quality
+	 * 909000 for High Quality
 	 */
-	uint8_t     channel_mapping[4];
-	uint32_t    enc_fs;
-	uint8_t    qmode;
-	uint8_t    link_quality;
+	uint32_t                     bit_rate;
+	/*
+	 * The channel setting information for LDAC specification
+	 * of Bluetooth A2DP which is determined by SRC and SNK
+	 * devices in Bluetooth transmission.
+	 * @Range:
+	 * 0 for native mode
+	 * 4 for mono
+	 * 2 for dual channel
+	 * 1 for stereo
+	 */
+	uint16_t                     channel_mode;
+	/*
+	 * Maximum Transmission Unit (MTU).
+	 * The minimum MTU that a L2CAP implementation for LDAC shall
+	 * support is 679 bytes, because LDAC is optimized with 2-DH5
+	 * packet as its target.
+	 * @Range : 679
+	 * @Default: 679 for LDACBT_MTU_2DH5
+	 */
+	uint16_t                     mtu;
+} __packed;
+
+struct asm_ldac_enc_cfg_t {
+	struct asm_custom_enc_cfg_t  custom_config;
+	struct asm_ldac_specific_enc_cfg_t  ldac_specific_config;
+	struct afe_abr_enc_cfg_t abr_config;
 } __packed;
 
 struct afe_enc_fmt_id_param_t {
@@ -3547,11 +3620,11 @@ struct afe_port_media_type_t {
 
 union afe_enc_config_data {
 	struct asm_sbc_enc_cfg_t sbc_config;
-	struct asm_aac_enc_cfg_v2_t aac_config;
+	struct asm_aac_enc_cfg_t aac_config;
 	struct asm_custom_enc_cfg_t  custom_config;
 	struct asm_celt_enc_cfg_t  celt_config;
 	struct asm_aptx_enc_cfg_t  aptx_config;
-	struct asm_custom_enc_cfg_ldac_t  ldac_config;
+	struct asm_ldac_enc_cfg_t  ldac_config;
 };
 
 struct afe_enc_config {
@@ -3560,30 +3633,17 @@ struct afe_enc_config {
 	union afe_enc_config_data data;
 };
 
+struct afe_dec_config {
+	u32 format;
+	struct afe_abr_dec_cfg_t abr_dec_cfg;
+};
+
 struct afe_enc_cfg_blk_param_t {
 	uint32_t enc_cfg_blk_size;
 	/*
 	 *Size of the encoder configuration block that follows this member
 	 */
 	union afe_enc_config_data enc_blk_config;
-};
-
-union afe_enc_bitrate_data {
-	uint16_t 	ldac_quality_mode[2];
-	uint32_t	ldac_qmode;
-};
-
-struct afe_enc_bitrate {
-	u32 format;
-	union afe_enc_bitrate_data data;
-};
-
-struct afe_enc_bitrate_blk_param_t {
-	uint32_t enc_bitrate_blk_size;
-	/*
-	 *Size of the encoder configuration block that follows this member
-	 */
-	union afe_enc_bitrate_data enc_bitrate;
 };
 
 /*
@@ -3610,6 +3670,39 @@ struct avs_enc_set_scrambler_param_t {
 	uint32_t enable_scrambler;
 };
 
+/*
+ * Payload of the AVS_ENCODER_PARAM_ID_BIT_RATE_LEVEL_MAP parameter.
+ */
+struct afe_enc_level_to_bitrate_map_param_t {
+	/*
+	 * Parameter for mapping link quality level to bitrate.
+	 */
+	struct afe_quality_level_to_bitrate_info mapping_table;
+};
+
+/*
+ * Payload of the AVS_ENCDEC_PARAM_ID_DEC_TO_ENC_COMMUNICATION parameter.
+ */
+struct afe_enc_dec_imc_info_param_t {
+	/*
+	 * Parameter to set up Inter Module Communication (IMC) between
+	 * AFE Decoder and Encoder.
+	 */
+	struct afe_imc_dec_enc_info imc_info;
+};
+
+/*
+ * Payload of the AVS_DECODER_PARAM_ID_DEPACKETIZER_ID parameter.
+ */
+struct avs_dec_depacketizer_id_param_t {
+	/*
+	 * Supported values:
+	 * #AVS_MODULE_ID_DEPACKETIZER_COP
+	 * Any OpenDSP supported values
+	 */
+	uint32_t dec_depacketizer_id;
+};
+
 union afe_port_config {
 	struct afe_param_id_pcm_cfg               pcm;
 	struct afe_param_id_i2s_cfg               i2s;
@@ -3624,12 +3717,15 @@ union afe_port_config {
 	struct afe_param_id_tdm_cfg               tdm;
 	struct afe_param_id_usb_audio_cfg         usb_audio;
 	struct afe_param_id_aptx_sync_mode        sync_mode_param;
+	struct asm_aac_frame_size_control_t       frame_ctl_param;
 	struct afe_enc_fmt_id_param_t             enc_fmt;
 	struct afe_port_media_type_t              media_type;
 	struct afe_enc_cfg_blk_param_t            enc_blk_param;
-	union afe_enc_bitrate_data                enc_bitrate;
 	struct avs_enc_packetizer_id_param_t      enc_pkt_id_param;
 	struct avs_enc_set_scrambler_param_t      enc_set_scrambler_param;
+	struct avs_dec_depacketizer_id_param_t    dec_depkt_id_param;
+	struct afe_enc_level_to_bitrate_map_param_t    map_param;
+	struct afe_enc_dec_imc_info_param_t       imc_info_param;
 } __packed;
 
 struct afe_audioif_config_command_no_payload {
@@ -4212,6 +4308,66 @@ struct asm_softvolume_params {
 
 /* Rear right of center. */
 #define PCM_CHANNEL_RRC  16
+
+/* Secondary low frequency effect channel. */
+#define PCM_CHANNEL_LFE2  17
+
+/* Side left channel. */
+#define PCM_CHANNEL_SL  18
+
+/* Side right channel. */
+#define PCM_CHANNEL_SR  19
+
+/* Top front left channel. */
+#define PCM_CHANNEL_TFL  20
+
+/* Left vertical height channel. */
+#define PCM_CHANNEL_LVH  PCM_CHANNEL_TFL
+
+/* Top front right channel. */
+#define PCM_CHANNEL_TFR 21
+
+/* Right vertical height channel. */
+#define PCM_CHANNEL_RVH PCM_CHANNEL_TFR
+
+/* Top center channel. */
+#define PCM_CHANNEL_TC  22
+
+/* Top back left channel. */
+#define PCM_CHANNEL_TBL  23
+
+/* Top back right channel. */
+#define PCM_CHANNEL_TBR  24
+
+/* Top side left channel. */
+#define PCM_CHANNEL_TSL  25
+
+/* Top side right channel. */
+#define PCM_CHANNEL_TSR  26
+
+/* Top back center channel. */
+#define PCM_CHANNEL_TBC  27
+
+/* Bottom front center channel. */
+#define PCM_CHANNEL_BFC  28
+
+/* Bottom front left channel. */
+#define PCM_CHANNEL_BFL  29
+
+/* Bottom front right channel. */
+#define PCM_CHANNEL_BFR  30
+
+/* Left wide channel. */
+#define PCM_CHANNEL_LW  31
+
+/* Right wide channel. */
+#define PCM_CHANNEL_RW  32
+
+/* Left side direct channel. */
+#define PCM_CHANNEL_LSD  33
+
+/* Right side direct channel. */
+#define PCM_CHANNEL_RSD  34
 
 #define PCM_FORMAT_MAX_NUM_CHANNEL  8
 
@@ -7215,12 +7371,6 @@ struct asm_stream_cmd_open_read_compressed {
 								0x11000000
 #define ADM_CMD_COPP_OPENOPOLOGY_ID_SPEAKER_MCH_PEAK_VOL \
 								0x0001031B
-#define ADM_CMD_COPP_OPENOPOLOGY_ID_SPEAKER_RX_MCH_IIR_COPP_MBDRC_V3 \
-								0x11000004
-#define ADM_CMD_COPP_OPENOPOLOGY_ID_SPEAKER_STEREO_AUDIO_COPP_SOMC_HP \
-								0x11000006
-#define ADM_CMD_COPP_OPENOPOLOGY_ID_SPEAKER_RX_MCH_FIR_IIR_COPP_MBDRC_V3 \
-								0x11000009
 #define ADM_CMD_COPP_OPENOPOLOGY_ID_MIC_MONO_AUDIO_COPP  0x00010315
 #define ADM_CMD_COPP_OPENOPOLOGY_ID_MIC_STEREO_AUDIO_COPP 0x00010316
 #define AUDPROC_COPPOPOLOGY_ID_MCHAN_IIR_AUDIO           0x00010715
@@ -9666,45 +9816,6 @@ struct afe_param_id_clip_bank_sel {
 	uint32_t bank_map[AFE_CLIP_MAX_BANKS];
 } __packed;
 
-/* SOMC effect start */
-/* Module/Parameter IDs */
-#define ASM_MODULE_ID_SONYBUNDLE            0x10002010
-
-#define PARAM_ID_SB_COMMON_USER_PARAM       0x10002011
-#define PARAM_ID_SB_DYNAMICNORMALIZER_USER_PARAM 0x10002012
-#define PARAM_ID_SB_SFORCE_USER_PARAM       0x10002013
-#define PARAM_ID_SB_VPT20_USER_PARAM        0x10002014
-#define PARAM_ID_SB_CLEARPHASE_HP_USER_PARAM 0x10002015
-#define PARAM_ID_SB_CLEARAUDIO_USER_PARAM   0x10002016
-#define PARAM_ID_SB_CLEARAUDIO_VOLUME_PARAM 0x10002017
-#define PARAM_ID_SB_CLEARPHASE_SP_USER_PARAM 0x10002018
-#define PARAM_ID_SB_XLOUD_USER_PARAM        0x10002019
-
-#define PARAM_ID_SB_CLEARPHASE_HP_TUNING    0x1000201A
-#define PARAM_ID_SB_SFORCE_TUNING           0x1000201B
-#define PARAM_ID_SB_CLEARPHASE_SP_TUNING    0x1000201C
-#define PARAM_ID_SB_XLOUD_TUNING            0x1000201D
-
-#define ASM_STREAM_POSTPROC_TOPO_ID_SONY    0x10002101
-
-struct clearphase_hp_tuning_params {
-	unsigned char coefs[2064];
-} __packed;
-
-struct s_force_tuning_params {
-	unsigned char coefs[1016];
-} __packed;
-
-struct clearphase_sp_tuning_params {
-	unsigned char coefs[2360];
-} __packed;
-
-struct xloud_tuning_params {
-	unsigned int level;
-	unsigned char coefs[512];
-} __packed;
-/* SOMC effect end */
-
 /* ERROR CODES */
 /* Success. The operation completed with no errors. */
 #define ADSP_EOK          0x00000000
@@ -9984,7 +10095,7 @@ struct afe_clk_set {
 	 * for enable and disable clock.
 	 *	"clk_freq_in_hz", "clk_attri", and "clk_root"
 	 *	are ignored in disable clock case.
-	 *	@values
+	 *	@values 
 	 *	- 0 -- Disabled
 	 *	- 1 -- Enabled  @tablebulletend
 	 */

@@ -1,4 +1,5 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2018 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -20,6 +21,7 @@
 #include <linux/delay.h>
 #include <dsp/msm_audio_ion.h>
 #include <dsp/apr_audio-v2.h>
+#include <dsp/apr_elliptic.h>
 #include <dsp/audio_cal_utils.h>
 #include <dsp/q6afe-v2.h>
 #include <dsp/q6audio-v2.h>
@@ -365,6 +367,11 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 				return -EINVAL;
 		}
 		wake_up(&this_afe.wait[data->token]);
+	} else if (data->opcode == ULTRASOUND_OPCODE) {
+		if (data->payload != NULL)
+			elliptic_process_apr_payload(data->payload);
+		else
+			pr_err("[ELUS]: payload is invalid");
 	} else if (data->payload_size) {
 		uint32_t *payload;
 		uint16_t port_id = 0;
@@ -886,7 +893,7 @@ static void afe_send_custom_topology(void)
 		goto unlock;
 	this_afe.set_custom_topology = 0;
 	cal_block = cal_utils_get_only_cal_block(this_afe.cal_data[cal_index]);
-	if (cal_block == NULL) {
+	if (cal_block == NULL || cal_utils_is_cal_stale(cal_block)) {
 		pr_err("%s cal_block not found!!\n", __func__);
 		goto unlock;
 	}
@@ -1092,6 +1099,15 @@ fail_cmd:
 	__func__, config.pdata.param_id, ret, src_port);
 	return ret;
 }
+
+afe_ultrasound_state_t elus_afe = {
+       .ptr_apr = &this_afe.apr,
+       .ptr_status = &this_afe.status,
+       .ptr_state = &this_afe.state,
+       .ptr_wait = this_afe.wait,
+       .timeout_ms = TIMEOUT_MS,
+};
+EXPORT_SYMBOL(elus_afe);
 
 static void afe_send_cal_spkr_prot_tx(int port_id)
 {
@@ -1346,7 +1362,9 @@ static struct cal_block_data *afe_find_cal_topo_id_by_port(
 		&cal_type->cal_blocks) {
 		cal_block = list_entry(ptr,
 			struct cal_block_data, list);
-
+		/* Skip cal_block if it is already marked stale */
+		if (cal_utils_is_cal_stale(cal_block))
+			continue;
 		path = ((afe_get_port_type(port_id) ==
 			MSM_AFE_PORT_TYPE_TX)?(TX_DEVICE):(RX_DEVICE));
 		afe_top =
@@ -1374,6 +1392,11 @@ err_exit:
 	return NULL;
 }
 
+/*
+ * Retrieving cal_block will mark cal_block as stale.
+ * Hence it cannot be reused or resent unless the flag
+ * is reset.
+ */
 static int afe_get_cal_topology_id(u16 port_id, u32 *topology_id,
 				   int cal_type_index)
 {
@@ -1383,7 +1406,8 @@ static int afe_get_cal_topology_id(u16 port_id, u32 *topology_id,
 	struct audio_cal_info_afe_top   *afe_top_info = NULL;
 
 	if (this_afe.cal_data[cal_type_index] == NULL) {
-		pr_err("%s: [AFE_TOPOLOGY_CAL] not initialized\n", __func__);
+		pr_err("%s: cal_type %d not initialized\n", __func__,
+			cal_type_index);
 		return -EINVAL;
 	}
 	if (topology_id == NULL) {
@@ -1396,8 +1420,8 @@ static int afe_get_cal_topology_id(u16 port_id, u32 *topology_id,
 	cal_block = afe_find_cal_topo_id_by_port(
 		this_afe.cal_data[cal_type_index], port_id);
 	if (cal_block == NULL) {
-		pr_err("%s: [AFE_TOPOLOGY_CAL] not initialized for this port %d\n",
-				__func__, port_id);
+		pr_err("%s: cal_type %d not initialized for this port %d\n",
+			__func__, cal_type_index, port_id);
 		ret = -EINVAL;
 		goto unlock;
 	}
@@ -1411,6 +1435,7 @@ static int afe_get_cal_topology_id(u16 port_id, u32 *topology_id,
 		goto unlock;
 	}
 	*topology_id = (u32)afe_top_info->topology;
+	cal_utils_mark_cal_used(cal_block);
 
 	pr_debug("%s: port_id = %u acdb_id = %d topology_id = %u ret=%d\n",
 		__func__, port_id, afe_top_info->acdb_id,
@@ -1549,7 +1574,7 @@ static struct cal_block_data *afe_find_cal(int cal_index, int port_id)
 			goto exit;
 		}
 	}
-	pr_err("%s: no matching cal_block found\n", __func__);
+	pr_debug("%s: no matching cal_block found\n", __func__);
 	cal_block = NULL;
 
 exit:
@@ -1589,7 +1614,7 @@ static int send_afe_cal_type(int cal_index, int port_id)
 		cal_block = cal_utils_get_only_cal_block(
 				this_afe.cal_data[cal_index]);
 
-	if (cal_block == NULL) {
+	if (cal_block == NULL || cal_utils_is_cal_stale(cal_block)) {
 		pr_err("%s cal_block not found!!\n", __func__);
 		ret = -EINVAL;
 		goto unlock;
@@ -1608,6 +1633,9 @@ static int send_afe_cal_type(int cal_index, int port_id)
 	if (ret < 0)
 		pr_debug("%s: No cal sent for cal_index %d, port_id = 0x%x! ret %d\n",
 			__func__, cal_index, port_id, ret);
+
+	cal_utils_mark_cal_used(cal_block);
+
 unlock:
 	mutex_unlock(&this_afe.cal_data[cal_index]->lock);
 done:
@@ -1626,8 +1654,8 @@ void afe_send_cal(u16 port_id)
 		if (ret < 0)
 			send_afe_cal_type(AFE_LSM_TX_CAL, port_id);
 	} else if (afe_get_port_type(port_id) == MSM_AFE_PORT_TYPE_RX) {
-		afe_send_cal_spkr_prot_rx(port_id);
 		send_afe_cal_type(AFE_COMMON_RX_CAL, port_id);
+		afe_send_cal_spkr_prot_rx(port_id);
 	}
 }
 
@@ -2870,30 +2898,22 @@ exit:
 	return ret;
 }
 
-int q6afe_send_enc_bitrate(u16 port_id,
-				 union afe_enc_bitrate_data *cfg, u32 format,
-				 union afe_port_config afe_config,
-				 u16 afe_in_channels, u16 afe_in_bit_width)
+static int q6afe_send_dec_config(u16 port_id,
+			union afe_port_config afe_config,
+			struct afe_dec_config *cfg)
 {
 	struct afe_audioif_config_command config;
 	int index;
 	int ret;
-	int payload_size = sizeof(config) - sizeof(struct apr_hdr) -
+	size_t payload_size = sizeof(config) - sizeof(struct apr_hdr) -
 				sizeof(config.param) - sizeof(config.port);
 
-	mutex_lock(&this_afe.afe_cmd_lock);
-	if (format != ASM_MEDIA_FMT_LDAC) {
-		pr_err("%s:Unsuppported format Ignore AFE config\n", __func__);
-		ret = 0;
-		goto exit;
-	}
-	memset(&config, 0, sizeof(config));
 	index = q6audio_get_port_index(port_id);
 	if (index < 0) {
 		pr_err("%s: Invalid index number: %d\n", __func__, index);
-		ret = -EINVAL;
-		goto exit;
+		return -EINVAL;
 	}
+	memset(&config, 0, sizeof(config));
 
 	config.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
 				APR_HDR_LEN(APR_HDR_SIZE), APR_PKT_VER);
@@ -2901,33 +2921,68 @@ int q6afe_send_enc_bitrate(u16 port_id,
 	config.hdr.src_port = 0;
 	config.hdr.dest_port = 0;
 	config.hdr.token = index;
+
 	config.hdr.opcode = AFE_PORT_CMD_SET_PARAM_V2;
 	config.param.port_id = q6audio_get_port_id(port_id);
 	config.param.payload_address_lsw = 0x00;
 	config.param.payload_address_msw = 0x00;
 	config.param.mem_map_handle = 0x00;
-	config.pdata.module_id = AFE_MODULE_ID_ENCODER;
-	config.pdata.param_id = AVS_ENCODER_PARAM_ID_ENC_BITRATE;
-	config.param.payload_size = payload_size
-					+ sizeof(config.port.enc_bitrate);
-	pr_debug("%s: send AVS_ENCODER_PARAM_ID_ENC_BITRATE to DSP payload:%d\n",
-				__func__, config.param.payload_size);
-	config.pdata.param_size = sizeof(config.port.enc_bitrate);
-	config.port.enc_bitrate = *cfg;
-	pr_debug("%s: send AVS_ENCODER_PARAM_ID_ENC_BITRATE data:%x\n",
-				__func__, config.port.enc_bitrate.ldac_qmode);
-
+	config.pdata.module_id = AFE_MODULE_ID_DECODER;
+	config.param.payload_size =
+			payload_size + sizeof(config.port.dec_depkt_id_param);
+	pr_debug("%s:sending AFE_DECODER_PARAM_ID_DEPACKETIZER to DSP payload = %d",
+		  __func__, config.param.payload_size);
+	config.pdata.param_id = AFE_DECODER_PARAM_ID_DEPACKETIZER_ID;
+	config.pdata.param_size = sizeof(config.port.dec_depkt_id_param);
+	config.port.dec_depkt_id_param.dec_depacketizer_id =
+					AFE_MODULE_ID_DEPACKETIZER_COP;
 	ret = afe_apr_send_pkt(&config, &this_afe.wait[index]);
 	if (ret) {
-		pr_err("%s: AVS_ENCODER_PARAM_ID_ENC_BITRATE for port 0x%x failed %d\n",
+		pr_err("%s: AFE_DECODER_PARAM_ID_DEPACKETIZER for port 0x%x failed %d\n",
 			__func__, port_id, ret);
 		goto exit;
 	}
+
+	config.param.payload_size =
+		payload_size + sizeof(config.port.imc_info_param);
+	pr_debug("%s:sending AFE_ENCDEC_PARAM_ID_DEC_TO_ENC_COMMUNICATION to DSP payload = %d\n",
+		  __func__, config.param.payload_size);
+	config.pdata.param_id = AFE_ENCDEC_PARAM_ID_DEC_TO_ENC_COMMUNICATION;
+	config.pdata.param_size = sizeof(config.port.imc_info_param);
+	config.port.imc_info_param.imc_info = cfg->abr_dec_cfg.imc_info;
+	ret = afe_apr_send_pkt(&config, &this_afe.wait[index]);
+	if (ret) {
+		pr_err("%s: AFE_ENCDEC_PARAM_ID_DEC_TO_ENC_COMMUNICATION for port 0x%x failed %d\n",
+			__func__, port_id, ret);
+		goto exit;
+	}
+
+	config.param.payload_size =
+			payload_size + sizeof(config.port.media_type);
+	config.pdata.param_size = sizeof(config.port.media_type);
+
+	pr_debug("%s:Sending AFE_API_VERSION_PORT_MEDIA_TYPE to DSP", __func__);
+	config.pdata.module_id = AFE_MODULE_PORT;
+	config.pdata.param_id = AFE_PARAM_ID_PORT_MEDIA_TYPE;
+	config.port.media_type.minor_version = AFE_API_VERSION_PORT_MEDIA_TYPE;
+	config.port.media_type.sample_rate = afe_config.slim_sch.sample_rate;
+	config.port.media_type.bit_width =
+				afe_config.slim_sch.bit_width;
+	config.port.media_type.num_channels =
+				afe_config.slim_sch.num_channels;
+	config.port.media_type.data_format = AFE_PORT_DATA_FORMAT_PCM;
+	config.port.media_type.reserved = 0;
+
+	ret = afe_apr_send_pkt(&config, &this_afe.wait[index]);
+	if (ret) {
+		pr_err("%s: AFE_API_VERSION_PORT_MEDIA_TYPE for port 0x%x failed %d\n",
+			__func__, port_id, ret);
+		goto exit;
+	}
+
 exit:
-	mutex_unlock(&this_afe.afe_cmd_lock);
 	return ret;
 }
-EXPORT_SYMBOL(q6afe_send_enc_bitrate);
 
 static int q6afe_send_enc_config(u16 port_id,
 				 union afe_enc_config_data *cfg, u32 format,
@@ -2980,21 +3035,66 @@ static int q6afe_send_enc_config(u16 port_id,
 				__func__);
 		goto exit;
 	}
-
-	config.param.payload_size = payload_size
+	if (format == ASM_MEDIA_FMT_LDAC) {
+		config.param.payload_size = payload_size
+				+ sizeof(config.port.enc_blk_param)
+				- sizeof(struct afe_abr_enc_cfg_t);
+		config.pdata.param_size = sizeof(config.port.enc_blk_param)
+					    - sizeof(struct afe_abr_enc_cfg_t);
+		config.port.enc_blk_param.enc_cfg_blk_size =
+				sizeof(config.port.enc_blk_param.enc_blk_config)
+					- sizeof(struct afe_abr_enc_cfg_t);
+	} else if (format == ASM_MEDIA_FMT_AAC_V2) {
+		config.param.payload_size = payload_size
+				+ sizeof(config.port.enc_blk_param)
+				- sizeof(struct asm_aac_frame_size_control_t);
+		config.pdata.param_size = sizeof(config.port.enc_blk_param)
+				- sizeof(struct asm_aac_frame_size_control_t);
+		config.port.enc_blk_param.enc_cfg_blk_size =
+				sizeof(config.port.enc_blk_param.enc_blk_config)
+				- sizeof(struct asm_aac_frame_size_control_t);
+	} else {
+		config.param.payload_size = payload_size
 					+ sizeof(config.port.enc_blk_param);
+		config.pdata.param_size = sizeof(config.port.enc_blk_param);
+		config.port.enc_blk_param.enc_cfg_blk_size =
+			sizeof(config.port.enc_blk_param.enc_blk_config);
+	}
 	pr_debug("%s:send AFE_ENCODER_PARAM_ID_ENC_CFG_BLK to DSP payload:%d\n",
 				__func__, config.param.payload_size);
 	config.pdata.param_id = AFE_ENCODER_PARAM_ID_ENC_CFG_BLK;
-	config.pdata.param_size = sizeof(config.port.enc_blk_param);
-	config.port.enc_blk_param.enc_cfg_blk_size =
-			sizeof(config.port.enc_blk_param.enc_blk_config);
 	config.port.enc_blk_param.enc_blk_config = *cfg;
 	ret = afe_apr_send_pkt(&config, &this_afe.wait[index]);
 	if (ret) {
 		pr_err("%s: AFE_ENCODER_PARAM_ID_ENC_CFG_BLK for port 0x%x failed %d\n",
 			__func__, port_id, ret);
 		goto exit;
+	}
+
+	if (format == ASM_MEDIA_FMT_AAC_V2) {
+		uint32_t frame_size_ctl_value = config.port.enc_blk_param.
+			enc_blk_config.aac_config.frame_ctl.ctl_value;
+		if (frame_size_ctl_value > 0) {
+			config.param.payload_size = payload_size
+					+ sizeof(config.port.frame_ctl_param);
+			config.pdata.param_id =
+				AFE_PARAM_ID_AAC_FRM_SIZE_CONTROL;
+			config.pdata.param_size =
+				sizeof(config.port.frame_ctl_param);
+			config.port.frame_ctl_param.ctl_type =
+				config.port.enc_blk_param.enc_blk_config.
+					aac_config.frame_ctl.ctl_type;
+			config.port.frame_ctl_param.ctl_value =
+						frame_size_ctl_value;
+			pr_debug("%s: send AFE_PARAM_ID_AAC_FRM_SIZE_CONTROL\n",
+				  __func__);
+			ret = afe_apr_send_pkt(&config, &this_afe.wait[index]);
+			if (ret) {
+				pr_err("%s: AAC_FRM_SIZE_CONTROL failed %d\n",
+					__func__, ret);
+				goto exit;
+			}
+		}
 	}
 
 	if (format == ASM_MEDIA_FMT_APTX) {
@@ -3044,6 +3144,40 @@ static int q6afe_send_enc_config(u16 port_id,
 		goto exit;
 	}
 
+	if (format == ASM_MEDIA_FMT_LDAC &&
+	    cfg->ldac_config.abr_config.is_abr_enabled) {
+		config.param.payload_size =
+			payload_size + sizeof(config.port.map_param);
+		pr_debug("%s:sending AFE_ENCODER_PARAM_ID_BIT_RATE_LEVEL_MAP to DSP payload = %d\n",
+			__func__, config.param.payload_size);
+		config.pdata.param_id = AFE_ENCODER_PARAM_ID_BIT_RATE_LEVEL_MAP;
+		config.pdata.param_size = sizeof(config.port.map_param);
+		config.port.map_param.mapping_table =
+			cfg->ldac_config.abr_config.mapping_info;
+		ret = afe_apr_send_pkt(&config, &this_afe.wait[index]);
+		if (ret) {
+			pr_err("%s: AFE_ENCODER_PARAM_ID_BIT_RATE_LEVEL_MAP for port 0x%x failed %d\n",
+				__func__, port_id, ret);
+			goto exit;
+		}
+
+		config.param.payload_size =
+			payload_size + sizeof(config.port.imc_info_param);
+		pr_debug("%s:sending AFE_ENCDEC_PARAM_ID_DEC_TO_ENC_COMMUNICATION to DSP payload = %d\n",
+				__func__, config.param.payload_size);
+		config.pdata.param_id =
+			AFE_ENCDEC_PARAM_ID_DEC_TO_ENC_COMMUNICATION;
+		config.pdata.param_size = sizeof(config.port.imc_info_param);
+		config.port.imc_info_param.imc_info =
+			cfg->ldac_config.abr_config.imc_info;
+		ret = afe_apr_send_pkt(&config, &this_afe.wait[index]);
+		if (ret) {
+			pr_err("%s: AFE_ENCDEC_PARAM_ID_DEC_TO_ENC_COMMUNICATION for port 0x%x failed %d\n",
+					__func__, port_id, ret);
+			goto exit;
+		}
+	}
+
 	config.param.payload_size =
 			payload_size + sizeof(config.port.media_type);
 	config.pdata.param_size = sizeof(config.port.media_type);
@@ -3052,7 +3186,13 @@ static int q6afe_send_enc_config(u16 port_id,
 	config.pdata.module_id = AFE_MODULE_PORT;
 	config.pdata.param_id = AFE_PARAM_ID_PORT_MEDIA_TYPE;
 	config.port.media_type.minor_version = AFE_API_VERSION_PORT_MEDIA_TYPE;
-	config.port.media_type.sample_rate = afe_config.slim_sch.sample_rate;
+	if (format == ASM_MEDIA_FMT_LDAC)
+		config.port.media_type.sample_rate =
+			cfg->ldac_config.custom_config.sample_rate;
+	else
+		config.port.media_type.sample_rate =
+			afe_config.slim_sch.sample_rate;
+
 	if (afe_in_bit_width)
 		config.port.media_type.bit_width = afe_in_bit_width;
 	else
@@ -3080,8 +3220,9 @@ exit:
 
 static int __afe_port_start(u16 port_id, union afe_port_config *afe_config,
 			    u32 rate, u16 afe_in_channels, u16 afe_in_bit_width,
-			    union afe_enc_config_data *cfg, u32 enc_format,
-			    u32 scrambler_mode)
+			    union afe_enc_config_data *enc_cfg,
+			    u32 codec_format, u32 scrambler_mode,
+			    struct afe_dec_config *dec_cfg)
 {
 	struct afe_audioif_config_command config;
 	int ret = 0;
@@ -3326,7 +3467,8 @@ static int __afe_port_start(u16 port_id, union afe_port_config *afe_config,
 	config.pdata.param_size = sizeof(config.port);
 
 	config.port = *afe_config;
-	if ((enc_format != ASM_MEDIA_FMT_NONE) &&
+	if (((enc_cfg != NULL) || (dec_cfg != NULL)) &&
+	    (codec_format != ASM_MEDIA_FMT_NONE) &&
 	    (cfg_type == AFE_PARAM_ID_SLIMBUS_CONFIG)) {
 		config.port.slim_sch.data_format =
 				AFE_SB_DATA_FORMAT_GENERIC_COMPRESSED;
@@ -3338,18 +3480,32 @@ static int __afe_port_start(u16 port_id, union afe_port_config *afe_config,
 		goto fail_cmd;
 	}
 
-	if ((enc_format != ASM_MEDIA_FMT_NONE) &&
+	if ((codec_format != ASM_MEDIA_FMT_NONE) &&
 	    (cfg_type == AFE_PARAM_ID_SLIMBUS_CONFIG)) {
-		pr_debug("%s: Found AFE encoder support for SLIMBUS enc_format = %d\n",
-					__func__, enc_format);
-		ret = q6afe_send_enc_config(port_id, cfg, enc_format,
-					    *afe_config, afe_in_channels,
-					    afe_in_bit_width,
-					    scrambler_mode);
-		if (ret) {
-			pr_err("%s: AFE encoder config for port 0x%x failed %d\n",
-				__func__, port_id, ret);
-			goto fail_cmd;
+		if (enc_cfg != NULL) {
+			pr_debug("%s: Found AFE encoder support for SLIMBUS enc_format = %d\n",
+						__func__, codec_format);
+			ret = q6afe_send_enc_config(port_id, enc_cfg,
+						    codec_format, *afe_config,
+						    afe_in_channels,
+						    afe_in_bit_width,
+						    scrambler_mode);
+			if (ret) {
+				pr_err("%s: AFE encoder config for port 0x%x failed %d\n",
+					__func__, port_id, ret);
+				goto fail_cmd;
+			}
+		}
+		if (dec_cfg != NULL) {
+			pr_debug("%s: Found AFE decoder support for SLIMBUS dec_format = %d\n",
+				  __func__, codec_format);
+			ret = q6afe_send_dec_config(port_id, *afe_config,
+						    dec_cfg);
+			if (ret) {
+				pr_err("%s: AFE decoder config for port 0x%x failed %d\n",
+					 __func__, port_id, ret);
+				goto fail_cmd;
+			}
 		}
 	}
 
@@ -3398,31 +3554,42 @@ int afe_port_start(u16 port_id, union afe_port_config *afe_config,
 		   u32 rate)
 {
 	return __afe_port_start(port_id, afe_config, rate,
-				0, 0, NULL, ASM_MEDIA_FMT_NONE, 0);
+				0, 0, NULL, ASM_MEDIA_FMT_NONE, 0, NULL);
 }
 EXPORT_SYMBOL(afe_port_start);
 
 /**
  * afe_port_start_v2 - to configure AFE session with
- * specified port configuration and encoder params
+ * specified port configuration and encoder /decoder params
  *
  * @port_id: AFE port id number
  * @afe_config: port configutation
  * @rate: sampling rate of port
- * @cfg: AFE encoder configuration information to setup encoder
+ * @enc_cfg: AFE enc configuration information to setup encoder
  * @afe_in_channels: AFE input channel configuration, this needs
  *  update only if input channel is differ from AFE output
+ * @dec_cfg: AFE dec configuration information to set up decoder
  *
  * Returns 0 on success or error value on port start failure.
  */
 int afe_port_start_v2(u16 port_id, union afe_port_config *afe_config,
 		      u32 rate, u16 afe_in_channels, u16 afe_in_bit_width,
-		      struct afe_enc_config *enc_cfg)
+		      struct afe_enc_config *enc_cfg,
+		      struct afe_dec_config *dec_cfg)
 {
-	return __afe_port_start(port_id, afe_config, rate,
-				afe_in_channels, afe_in_bit_width,
-				&enc_cfg->data, enc_cfg->format,
-				enc_cfg->scrambler_mode);
+	int ret = 0;
+
+	if (enc_cfg != NULL)
+		ret = __afe_port_start(port_id, afe_config, rate,
+					afe_in_channels, afe_in_bit_width,
+					&enc_cfg->data, enc_cfg->format,
+					enc_cfg->scrambler_mode, dec_cfg);
+	else if (dec_cfg != NULL)
+		ret = __afe_port_start(port_id, afe_config, rate,
+					afe_in_channels, afe_in_bit_width,
+					NULL, dec_cfg->format, 0, dec_cfg);
+
+	return ret;
 }
 EXPORT_SYMBOL(afe_port_start_v2);
 
@@ -5234,7 +5401,7 @@ static int afe_sidetone_iir(u16 tx_port_id)
 	}
 	mutex_lock(&this_afe.cal_data[cal_index]->lock);
 	cal_block = cal_utils_get_only_cal_block(this_afe.cal_data[cal_index]);
-	if (cal_block == NULL) {
+	if (cal_block == NULL || cal_utils_is_cal_stale(cal_block)) {
 		pr_err("%s: cal_block not found\n ", __func__);
 		mutex_unlock(&this_afe.cal_data[cal_index]->lock);
 		ret = -EINVAL;
@@ -5340,7 +5507,7 @@ static int afe_sidetone(u16 tx_port_id, u16 rx_port_id, bool enable)
 	}
 	mutex_lock(&this_afe.cal_data[cal_index]->lock);
 	cal_block = cal_utils_get_only_cal_block(this_afe.cal_data[cal_index]);
-	if (cal_block == NULL) {
+	if (cal_block == NULL || cal_utils_is_cal_stale(cal_block)) {
 		pr_err("%s: cal_block not found\n", __func__);
 		mutex_unlock(&this_afe.cal_data[cal_index]->lock);
 		ret = -EINVAL;
@@ -5484,6 +5651,7 @@ int afe_validate_port(u16 port_id)
 	case SLIMBUS_2_RX:
 	case SLIMBUS_2_TX:
 	case SLIMBUS_3_RX:
+	case SLIMBUS_3_TX:
 	case INT_BT_SCO_RX:
 	case INT_BT_SCO_TX:
 	case INT_BT_A2DP_RX:
@@ -6265,6 +6433,7 @@ int q6afe_check_osr_clk_freq(u32 freq)
 
 	switch (freq) {
 	case Q6AFE_LPASS_OSR_CLK_12_P288_MHZ:
+	case Q6AFE_LPASS_OSR_CLK_9_P600_MHZ:
 	case Q6AFE_LPASS_OSR_CLK_8_P192_MHZ:
 	case Q6AFE_LPASS_OSR_CLK_6_P144_MHZ:
 	case Q6AFE_LPASS_OSR_CLK_4_P096_MHZ:
@@ -6804,6 +6973,9 @@ static struct cal_block_data *afe_find_hw_delay_by_path(
 		cal_block = list_entry(ptr,
 			struct cal_block_data, list);
 
+		if (cal_utils_is_cal_stale(cal_block))
+			continue;
+
 		if (((struct audio_cal_info_hw_delay *)cal_block->cal_info)
 			->path == path) {
 			return cal_block;
@@ -6867,6 +7039,8 @@ static int afe_get_cal_hw_delay(int32_t path,
 		ret = -EFAULT;
 		goto unlock;
 	}
+
+	cal_utils_mark_cal_used(cal_block);
 	pr_debug("%s: Path = %d samplerate = %u usec = %u status %d\n",
 		 __func__, path, entry->sample_rate, entry->delay_usec, ret);
 unlock:
