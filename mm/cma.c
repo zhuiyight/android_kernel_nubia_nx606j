@@ -440,6 +440,8 @@ struct page *cma_alloc(struct cma *cma, size_t count, unsigned int align)
 	struct page *page = NULL;
 	int retry_after_sleep = 0;
 	int ret = -ENOMEM;
+	int max_retries = 2;
+	int available_regions = 0;
 
 	if (!cma || !cma->count)
 		return NULL;
@@ -466,8 +468,16 @@ struct page *cma_alloc(struct cma *cma, size_t count, unsigned int align)
 				bitmap_maxno, start, bitmap_count, mask,
 				offset);
 		if (bitmap_no >= bitmap_maxno) {
-			if (retry_after_sleep < 2) {
+			if ((retry_after_sleep < max_retries) &&
+						(ret == -EBUSY)) {
 				start = 0;
+				/*
+				 * update max retries if available free regions
+				 * are less.
+				 */
+				if (available_regions < 3)
+					max_retries = 5;
+				available_regions = 0;
 				/*
 				 * Page may be momentarily pinned by some other
 				 * process which has been scheduled out, eg.
@@ -485,6 +495,8 @@ struct page *cma_alloc(struct cma *cma, size_t count, unsigned int align)
 				break;
 			}
 		}
+
+		available_regions++;
 		bitmap_set(cma->bitmap, bitmap_no, bitmap_count);
 		/*
 		 * It's safe to drop the lock here. We've marked this region for
