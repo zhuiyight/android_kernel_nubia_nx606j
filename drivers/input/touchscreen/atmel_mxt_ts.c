@@ -2460,39 +2460,7 @@ static int mxt_read_rev(struct mxt_data *data)
 			return ret;
 		}
 
-		switch (object->type) {
-		case MXT_GEN_MESSAGE_T5:
-			if (data->info.family_id == 0x80 &&
-			    data->info.version < 0x20) {
-				/*
-				 * On mXT224 firmware versions prior to V2.0
-				 * read and discard unused CRC byte otherwise
-				 * DMA reads are misaligned.
-				 */
-				data->T5_msg_size = mxt_obj_size(object);
-			} else {
-				/* CRC not enabled, so skip last byte */
-				data->T5_msg_size = mxt_obj_size(object) - 1;
-			}
-			data->T5_address = object->start_address;
-			break;
-		case MXT_GEN_COMMAND_T6:
-			data->T6_reportid = min_id;
-			data->T6_address = object->start_address;
-			break;
-		case MXT_GEN_POWER_T7:
-			data->T7_address = object->start_address;
-			break;
-		case MXT_TOUCH_MULTI_T9:
-			data->multitouch = MXT_TOUCH_MULTI_T9;
-			/* Only handle messages from first T9 instance */
-			data->T9_reportid_min = min_id;
-			data->T9_reportid_max = min_id +
-						object->num_report_ids - 1;
-			data->num_touchids = object->num_report_ids;
-			break;
-		case MXT_SPT_MESSAGECOUNT_T44:
-			data->T44_address = object->start_address;
+		if (val == 0)
 			break;
 		i++;
 		msleep(10);
@@ -6514,35 +6482,10 @@ out:
 	return retval;
 }
 
-static const struct dmi_system_id mxt_dmi_table[] = {
-	{
-		/* 2015 Google Pixel */
-		.ident = "Chromebook Pixel 2",
-		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "GOOGLE"),
-			DMI_MATCH(DMI_PRODUCT_NAME, "Samus"),
-		},
-		.driver_data = samus_platform_data,
-	},
-	{
-		/* Samsung Chromebook Pro */
-		.ident = "Samsung Chromebook Pro",
-		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "Google"),
-			DMI_MATCH(DMI_PRODUCT_NAME, "Caroline"),
-		},
-		.driver_data = samus_platform_data,
-	},
-	{
-		/* Other Google Chromebooks */
-		.ident = "Chromebook",
-		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "GOOGLE"),
-		},
-		.driver_data = chromebook_platform_data,
-	},
-	{ }
-};
+static int mxt_selftest_open(struct inode *inode, struct file *file)
+{
+	return 0;
+}
 
 static ssize_t mxt_selftest_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
 {

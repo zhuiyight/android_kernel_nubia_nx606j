@@ -41,9 +41,9 @@
 #define V4L_EVENT_CAM_REQ_MGR_EVENT       (V4L2_EVENT_PRIVATE_START + 0)
 
 /* Specific event ids to get notified in user space */
-#define V4L_EVENT_CAM_REQ_MGR_SOF         0
-#define V4L_EVENT_CAM_REQ_MGR_ERROR       1
-#define V4L_EVENT_CAM_REQ_MGR_MAX         2
+#define V4L_EVENT_CAM_REQ_MGR_SOF            0
+#define V4L_EVENT_CAM_REQ_MGR_ERROR          1
+#define V4L_EVENT_CAM_REQ_MGR_SOF_BOOT_TS    2
 
 /* SOF Event status */
 #define CAM_REQ_MGR_SOF_EVENT_SUCCESS           0
@@ -244,6 +244,7 @@ struct cam_req_mgr_link_control {
 #define CAM_MEM_FLAG_PACKET_BUF_TYPE            (1<<9)
 #define CAM_MEM_FLAG_CACHE                      (1<<10)
 #define CAM_MEM_FLAG_HW_SHARED_ACCESS           (1<<11)
+#define CAM_MEM_FLAG_CDSP_OUTPUT                (1<<12)
 
 #define CAM_MEM_MMU_MAX_HANDLE                  16
 
@@ -261,6 +262,9 @@ struct cam_req_mgr_link_control {
 #define GET_MEM_HANDLE(idx, fd) \
 	((idx & CAM_MEM_MGR_HDL_IDX_MASK) | \
 	(fd << (CAM_MEM_MGR_HDL_FD_END_POS - CAM_MEM_MGR_HDL_FD_SIZE))) \
+
+#define GET_FD_FROM_HANDLE(hdl) \
+	(hdl >> (CAM_MEM_MGR_HDL_FD_END_POS - CAM_MEM_MGR_HDL_FD_SIZE)) \
 
 #define CAM_MEM_MGR_GET_HDL_IDX(hdl) (hdl & CAM_MEM_MGR_HDL_IDX_MASK)
 

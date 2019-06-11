@@ -2238,7 +2238,7 @@ static inline void rto_start_unlock(atomic_t *v)
 	atomic_set_release(v, 0);
 }
 
-static inline void rto_start_unlock(atomic_t *v)
+static void tell_cpu_to_push(struct rq *rq)
 {
 	int cpu = -1;
 

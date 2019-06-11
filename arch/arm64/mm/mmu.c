@@ -67,7 +67,10 @@ struct dma_contig_early_reserve {
 	unsigned long size;
 };
 
-static struct dma_contig_early_reserve dma_mmu_remap[MAX_CMA_AREAS];
+/* allocate the memory for the fixup regions as well */
+#define MAX_FIXUP_AREAS MAX_CMA_AREAS
+static struct dma_contig_early_reserve
+			dma_mmu_remap[MAX_CMA_AREAS + MAX_FIXUP_AREAS];
 static int dma_mmu_remap_num;
 
 void __init dma_contiguous_early_fixup(phys_addr_t base, unsigned long size)
@@ -550,7 +553,7 @@ void __init paging_init(void)
 	 */
 	cpu_replace_ttbr1(__va(pgd_phys));
 	memcpy(swapper_pg_dir, pgd, PGD_SIZE);
-	cpu_replace_ttbr1(swapper_pg_dir);
+	cpu_replace_ttbr1(lm_alias(swapper_pg_dir));
 
 	pgd_clear_fixmap();
 	memblock_free(pgd_phys, PAGE_SIZE);

@@ -541,7 +541,7 @@ static bool __oom_reap_task_mm(struct task_struct *tsk, struct mm_struct *mm)
 		if (vma_is_anonymous(vma) || !(vma->vm_flags & VM_SHARED)) {
 			tlb_gather_mmu(&tlb, mm, vma->vm_start, vma->vm_end);
 			unmap_page_range(&tlb, vma, vma->vm_start, vma->vm_end,
-					 &details);
+					 NULL);
 			tlb_finish_mmu(&tlb, vma->vm_start, vma->vm_end);
 		}
 	}
@@ -614,8 +614,13 @@ void wake_oom_reaper(struct task_struct *tsk)
 	if (!oom_reaper_th)
 		return;
 
+	/* move the lock here to avoid scenario of queuing
+	 * the same task by both OOM killer and LMK.
+	 */
+	spin_lock(&oom_reaper_lock);
 	/* mm is already queued? */
-	if (test_and_set_bit(MMF_OOM_REAP_QUEUED, &tsk->signal->oom_mm->flags))
+	if (test_and_set_bit(MMF_OOM_REAP_QUEUED, &tsk->signal->oom_mm->flags)) {
+		spin_unlock(&oom_reaper_lock);
 		return;
 	}
 
