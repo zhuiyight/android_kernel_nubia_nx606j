@@ -15,7 +15,7 @@
  * The HW module is also called LPG (Light Pattern Generator).
  */
 
-#define pr_fmt(fmt) "[PWM-QPNP]%s,%d: " fmt, __func__,__LINE__
+#define pr_fmt(fmt) "%s: " fmt, __func__
 
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -1933,13 +1933,11 @@ static int qpnp_parse_dt_config(struct platform_device *pdev,
 								__func__);
 		return -EINVAL;
 	}
-	pr_info("chip->channel_id:%d\n",chip->channel_id);
 
 	if (!of_get_property(of_node, "qcom,supported-sizes", &list_size)) {
 		pr_err("Missing qcom,supported-size list\n");
 		return -EINVAL;
 	}
-	pr_info("chip->list_size:%d\n",list_size);
 
 	list_size /= sizeof(u32);
 	if (list_size > QPNP_PWM_SIZES_SUPPORTED) {
@@ -2042,7 +2040,6 @@ static int qpnp_parse_dt_config(struct platform_device *pdev,
 			kfree(lut_config->duty_pct_list);
 			return rc;
 		}
-		pr_info("lut_config->ramp_index:%d\n",lut_config->ramp_index);
 	}
 
 	rc = of_property_read_u32(of_node, "qcom,dtest-line",
@@ -2081,7 +2078,6 @@ static int qpnp_parse_dt_config(struct platform_device *pdev,
 								__func__);
 			goto out;
 		}
-		pr_err("label:%s\n",label);
 		if (!strcmp(label, "pwm")) {
 			rc = qpnp_parse_pwm_dt_config(node, of_node, chip);
 			if (rc)
@@ -2104,7 +2100,6 @@ static int qpnp_parse_dt_config(struct platform_device *pdev,
 	if (rc)
 		goto read_opt_props;
 
-	pr_info("qcom,mode-select mode:%d\n",mode);
 	if (mode > PM_PWM_MODE_LPG ||
 		(mode == PM_PWM_MODE_PWM && found_pwm_subnode == 0) ||
 		(mode == PM_PWM_MODE_LPG && found_lpg_subnode == 0)) {
@@ -2179,8 +2174,6 @@ static int qpnp_pwm_probe(struct platform_device *pdev)
 		pwm_chip->chip.pwms[0].label = pwm_chip->channel_owner;
 
 	pr_debug("PWM device channel:%d probed successfully\n",
-		pwm_chip->channel_id);
-	pr_info("PWM device channel:%d probed successfully\n",
 		pwm_chip->channel_id);
 	return 0;
 

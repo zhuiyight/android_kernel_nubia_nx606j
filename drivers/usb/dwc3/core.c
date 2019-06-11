@@ -233,10 +233,8 @@ static int dwc3_core_reset(struct dwc3 *dwc)
 	int		ret;
 	u32	reg;
 
-	do {
-		reg = dwc3_readl(dwc->regs, DWC3_DCTL);
-		if (!(reg & DWC3_DCTL_CSFTRST))
-			goto done;
+	/* Reset PHYs */
+	usb_phy_reset(dwc->usb2_phy);
 
 	if (dwc->maximum_speed == USB_SPEED_SUPER)
 		usb_phy_reset(dwc->usb3_phy);
@@ -254,23 +252,13 @@ static int dwc3_core_reset(struct dwc3 *dwc)
 
 	/* core exits U1/U2/U3 only in PHY power state P1/P2/P3 respectively */
 	if (dwc->revision <= DWC3_REVISION_310A)
-		reg |= DWC3_GUSB3PIPECTL_UX_EXIT_IN_PX;
+		reg |= DWC3_GUSB3PIPECTL_UX_EXIT_PX;
 
 	dwc3_writel(dwc->regs, DWC3_GUSB3PIPECTL(0), reg);
 
-	phy_exit(dwc->usb3_generic_phy);
-	phy_exit(dwc->usb2_generic_phy);
+	dwc3_notify_event(dwc, DWC3_CONTROLLER_RESET_EVENT, 0);
 
-	return -ETIMEDOUT;
-
-done:
-	/*
-	 * For DWC_usb31 controller, once DWC3_DCTL_CSFTRST bit is cleared,
-	 * we must wait at least 50ms before accessing the PHY domain
-	 * (synchronization delay). DWC_usb31 programming guide section 1.3.2.
-	 */
-	if (dwc3_is_usb31(dwc))
-		msleep(50);
+	dwc3_notify_event(dwc, DWC3_CONTROLLER_POST_RESET_EVENT, 0);
 
 	return 0;
 }
@@ -378,7 +366,7 @@ static void dwc3_free_event_buffers(struct dwc3 *dwc)
 		dwc3_free_one_event_buffer(dwc, evt);
 
 	/* free GSI related event buffers */
-	dwc3_notify_event(dwc, DWC3_GSI_EVT_BUF_FREE);
+	dwc3_notify_event(dwc, DWC3_GSI_EVT_BUF_FREE, 0);
 }
 
 /**
@@ -401,7 +389,7 @@ static int dwc3_alloc_event_buffers(struct dwc3 *dwc, unsigned length)
 	dwc->ev_buf = evt;
 
 	/* alloc GSI related event buffers */
-	dwc3_notify_event(dwc, DWC3_GSI_EVT_BUF_ALLOC);
+	dwc3_notify_event(dwc, DWC3_GSI_EVT_BUF_ALLOC, 0);
 	return 0;
 }
 
@@ -432,7 +420,7 @@ int dwc3_event_buffers_setup(struct dwc3 *dwc)
 	dwc3_writel(dwc->regs, DWC3_GEVNTCOUNT(0), 0);
 
 	/* setup GSI related event buffers */
-	dwc3_notify_event(dwc, DWC3_GSI_EVT_BUF_SETUP);
+	dwc3_notify_event(dwc, DWC3_GSI_EVT_BUF_SETUP, 0);
 	return 0;
 }
 
@@ -454,7 +442,7 @@ static void dwc3_event_buffers_cleanup(struct dwc3 *dwc)
 	dwc3_writel(dwc->regs, DWC3_GEVNTCOUNT(0), 0);
 
 	/* cleanup GSI related event buffers */
-	dwc3_notify_event(dwc, DWC3_GSI_EVT_BUF_CLEANUP);
+	dwc3_notify_event(dwc, DWC3_GSI_EVT_BUF_CLEANUP, 0);
 }
 
 static int dwc3_alloc_scratch_buffers(struct dwc3 *dwc)
@@ -876,7 +864,8 @@ int dwc3_core_init(struct dwc3 *dwc)
 	dwc3_frame_length_adjustment(dwc);
 
 	usb_phy_set_suspend(dwc->usb2_phy, 0);
-	usb_phy_set_suspend(dwc->usb3_phy, 0);
+	if (dwc->maximum_speed >= USB_SPEED_SUPER)
+		usb_phy_set_suspend(dwc->usb3_phy, 0);
 	ret = phy_power_on(dwc->usb2_generic_phy);
 	if (ret < 0)
 		goto err2;
@@ -904,6 +893,55 @@ int dwc3_core_init(struct dwc3 *dwc)
 	if (!dwc3_is_usb31(dwc) && dwc->revision >= DWC3_REVISION_310A) {
 		reg = dwc3_readl(dwc->regs, DWC3_GUCTL2);
 		reg |= DWC3_GUCTL2_RST_ACTBITLATER;
+		dwc3_writel(dwc->regs, DWC3_GUCTL2, reg);
+	}
+
+	/*
+	 * Workaround for STAR 9001198391 which affects dwc3 core
+	 * version 3.20a only. Default HP timer value is incorrectly
+	 * set to 3us. Reprogram HP timer value to support USB 3.1
+	 * HP timer ECN.
+	 */
+	if (!dwc3_is_usb31(dwc) &&  dwc->revision == DWC3_REVISION_320A) {
+		reg = dwc3_readl(dwc->regs, DWC3_GUCTL2);
+		reg &= ~DWC3_GUCTL2_HP_TIMER_MASK;
+		reg |= DWC3_GUCTL2_HP_TIMER(11);
+		dwc3_writel(dwc->regs, DWC3_GUCTL2, reg);
+	}
+
+	/*
+	 * Workaround for STAR 9001285599 which affects dwc3 core version 3.20a
+	 * only. If the PM TIMER ECN is enabled thru GUCTL2[19], then link
+	 * compliance test (TD7.21) may fail. If the ECN is not enabled
+	 * GUCTL2[19] = 0), the controller will use the old timer value (5us),
+	 * which is still fine for Link Compliance test. Hence Do not enable
+	 * PM TIMER ECN in V3.20a by setting GUCTL2[19] by default,
+	 * instead use GUCTL2[19] = 0.
+	 */
+	if (dwc->revision == DWC3_REVISION_320A) {
+		reg = dwc3_readl(dwc->regs, DWC3_GUCTL2);
+		reg &= ~DWC3_GUCTL2_LC_TIMER;
+		dwc3_writel(dwc->regs, DWC3_GUCTL2, reg);
+	}
+
+	/*
+	 * Enable hardware control of sending remote wakeup in HS when
+	 * the device is in the L1 state.
+	 */
+	if (dwc->revision >= DWC3_REVISION_290A) {
+		reg = dwc3_readl(dwc->regs, DWC3_GUCTL1);
+		reg |= DWC3_GUCTL1_DEV_L1_EXIT_BY_HW;
+		dwc3_writel(dwc->regs, DWC3_GUCTL1, reg);
+	}
+
+	/*
+	 * Enable evicting endpoint cache after flow control for bulk
+	 * endpoints for dwc3 core version 3.00a and 3.20a
+	 */
+	if (dwc->revision == DWC3_REVISION_300A ||
+			dwc->revision == DWC3_REVISION_320A) {
+		reg = dwc3_readl(dwc->regs, DWC3_GUCTL2);
+		reg |= DWC3_GUCTL2_ENABLE_EP_CACHE_EVICT;
 		dwc3_writel(dwc->regs, DWC3_GUCTL2, reg);
 	}
 
@@ -1020,19 +1058,20 @@ void dwc3_post_host_reset_core_init(struct dwc3 *dwc)
 	dwc3_gadget_restart(dwc);
 }
 
-static void (*notify_event)(struct dwc3 *, unsigned int);
-void dwc3_set_notifier(void (*notify)(struct dwc3 *, unsigned int))
+static void (*notify_event)(struct dwc3 *, unsigned int, unsigned int);
+void dwc3_set_notifier(void (*notify)(struct dwc3 *, unsigned int,
+							unsigned int))
 {
 	notify_event = notify;
 }
 EXPORT_SYMBOL(dwc3_set_notifier);
 
-int dwc3_notify_event(struct dwc3 *dwc, unsigned int event)
+int dwc3_notify_event(struct dwc3 *dwc, unsigned int event, unsigned int value)
 {
 	int ret = 0;
 
 	if (dwc->notify_event)
-		dwc->notify_event(dwc, event);
+		dwc->notify_event(dwc, event, value);
 	else
 		ret = -ENODEV;
 
@@ -1241,6 +1280,10 @@ static int dwc3_probe(struct platform_device *pdev)
 				"snps,disable-clk-gating");
 	dwc->enable_bus_suspend = device_property_read_bool(dev,
 					"snps,bus-suspend-enable");
+	dwc->usb3_u1u2_disable = device_property_read_bool(dev,
+					"snps,usb3-u1u2-disable");
+	dwc->usb2_l1_disable = device_property_read_bool(dev,
+					"snps,usb2-l1-disable");
 	if (dwc->enable_bus_suspend) {
 		pm_runtime_set_autosuspend_delay(dev, 500);
 		pm_runtime_use_autosuspend(dev);
@@ -1313,9 +1356,11 @@ static int dwc3_probe(struct platform_device *pdev)
 	if (ret)
 		goto err1;
 
-err5:
-	dwc3_event_buffers_cleanup(dwc);
-	dwc3_ulpi_exit(dwc);
+	ret = dwc3_debugfs_init(dwc);
+	if (ret) {
+		dev_err(dev, "failed to initialize debugfs\n");
+		goto err_core_init;
+	}
 
 	dwc->dwc_ipc_log_ctxt = ipc_log_context_create(NUM_LOG_PAGES,
 					dev_name(dwc->dev), 0);
@@ -1451,7 +1496,7 @@ static int dwc3_runtime_suspend(struct device *dev)
 	int		ret;
 
 	/* Check if platform glue driver handling PM, if not then handle here */
-	if (!dwc3_notify_event(dwc, DWC3_CORE_PM_RESUME_EVENT))
+	if (!dwc3_notify_event(dwc, DWC3_CORE_PM_RESUME_EVENT, 0))
 		return 0;
 
 	ret = dwc3_suspend_common(dwc);
@@ -1469,7 +1514,7 @@ static int dwc3_runtime_resume(struct device *dev)
 	int		ret;
 
 	/* Check if platform glue driver handling PM, if not then handle here */
-	if (!dwc3_notify_event(dwc, DWC3_CORE_PM_RESUME_EVENT))
+	if (!dwc3_notify_event(dwc, DWC3_CORE_PM_RESUME_EVENT, 0))
 		return 0;
 
 	device_init_wakeup(dev, false);
@@ -1525,7 +1570,7 @@ static int dwc3_suspend(struct device *dev)
 	int		ret;
 
 	/* Check if platform glue driver handling PM, if not then handle here */
-	if (!dwc3_notify_event(dwc, DWC3_CORE_PM_SUSPEND_EVENT))
+	if (!dwc3_notify_event(dwc, DWC3_CORE_PM_SUSPEND_EVENT, 0))
 		return 0;
 
 	ret = dwc3_suspend_common(dwc);
@@ -1537,13 +1582,26 @@ static int dwc3_suspend(struct device *dev)
 	return 0;
 }
 
+static int dwc3_pm_restore(struct device *dev)
+{
+	/*
+	 * Set the core as runtime active to prevent the runtime
+	 * PM ops being called before the PM restore is completed.
+	 */
+	pm_runtime_disable(dev);
+	pm_runtime_set_active(dev);
+	pm_runtime_enable(dev);
+
+	return 0;
+}
+
 static int dwc3_resume(struct device *dev)
 {
 	struct dwc3	*dwc = dev_get_drvdata(dev);
 	int		ret;
 
 	/* Check if platform glue driver handling PM, if not then handle here */
-	if (!dwc3_notify_event(dwc, DWC3_CORE_PM_RESUME_EVENT))
+	if (!dwc3_notify_event(dwc, DWC3_CORE_PM_RESUME_EVENT, 0))
 		return 0;
 
 	pinctrl_pm_select_default_state(dev);
@@ -1561,7 +1619,12 @@ static int dwc3_resume(struct device *dev)
 #endif /* CONFIG_PM_SLEEP */
 
 static const struct dev_pm_ops dwc3_dev_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(dwc3_suspend, dwc3_resume)
+	.suspend	= dwc3_suspend,
+	.resume		= dwc3_resume,
+	.freeze		= dwc3_suspend,
+	.thaw		= dwc3_pm_restore,
+	.poweroff	= dwc3_suspend,
+	.restore	= dwc3_pm_restore,
 	SET_RUNTIME_PM_OPS(dwc3_runtime_suspend, dwc3_runtime_resume,
 			dwc3_runtime_idle)
 };

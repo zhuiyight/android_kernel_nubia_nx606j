@@ -2,6 +2,7 @@
  * xhci-plat.c - xHCI host controller driver platform Bus Glue.
  *
  * Copyright (C) 2012 Texas Instruments Incorporated - http://www.ti.com
+ * Copyright (C) 2018 XiaoMi, Inc.
  * Author: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
  *
  * A lot of code borrowed from the Linux xHCI driver.
@@ -193,6 +194,7 @@ static int xhci_plat_probe(struct platform_device *pdev)
 {
 	const struct of_device_id *match;
 	const struct hc_driver	*driver;
+	struct device		*dwc = NULL;
 	struct device		*sysdev, *phydev;
 	struct xhci_hcd		*xhci;
 	struct resource         *res;
@@ -220,9 +222,14 @@ static int xhci_plat_probe(struct platform_device *pdev)
 	 * 3. xhci_plat is grandchild of a pci device (dwc3-pci)
 	 */
 	sysdev = &pdev->dev;
+
+	if (sysdev->parent && !sysdev->of_node && sysdev->parent->of_node)
+		dwc = sysdev->parent;
+
 	phydev = &pdev->dev;
 	if (sysdev->parent && !sysdev->of_node && sysdev->parent->of_node)
 		phydev = sysdev->parent;
+
 	/*
 	 * If sysdev->parent->parent is available and part of IOMMU group
 	 * (indicating possible usage of SMMU enablement), then use
@@ -330,7 +337,13 @@ static int xhci_plat_probe(struct platform_device *pdev)
 	if (device_property_read_u32(&pdev->dev, "usb-core-id", &xhci->core_id))
 		xhci->core_id = -EINVAL;
 
+	if (dwc)
+		hcd->usb_phy = devm_usb_get_phy_by_phandle(dwc, "usb-phy", 0);
+	else
+		hcd->usb_phy = devm_usb_get_phy_by_phandle(sysdev, "usb-phy", 0);
+
 	hcd->usb_phy = devm_usb_get_phy_by_phandle(phydev, "usb-phy", 0);
+
 	if (IS_ERR(hcd->usb_phy)) {
 		ret = PTR_ERR(hcd->usb_phy);
 		if (ret == -EPROBE_DEFER)
@@ -439,6 +452,39 @@ static int xhci_plat_runtime_idle(struct device *dev)
 	return -EBUSY;
 }
 
+static int xhci_plat_pm_freeze(struct device *dev)
+{
+	struct usb_hcd *hcd = dev_get_drvdata(dev);
+	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
+
+	if (!xhci)
+		return 0;
+
+	dev_dbg(dev, "xhci-plat freeze\n");
+
+	return xhci_suspend(xhci, false);
+}
+
+static int xhci_plat_pm_restore(struct device *dev)
+{
+	struct usb_hcd *hcd = dev_get_drvdata(dev);
+	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
+	int ret;
+
+	if (!xhci)
+		return 0;
+
+	dev_dbg(dev, "xhci-plat restore\n");
+
+	ret = xhci_resume(xhci, true);
+	pm_runtime_disable(dev);
+	pm_runtime_set_active(dev);
+	pm_runtime_enable(dev);
+	pm_runtime_mark_last_busy(dev);
+
+	return ret;
+}
+
 static int xhci_plat_runtime_suspend(struct device *dev)
 {
 	struct usb_hcd *hcd = dev_get_drvdata(dev);
@@ -470,7 +516,9 @@ static int xhci_plat_runtime_resume(struct device *dev)
 }
 
 static const struct dev_pm_ops xhci_plat_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(NULL, NULL)
+	.freeze		= xhci_plat_pm_freeze,
+	.restore	= xhci_plat_pm_restore,
+	.thaw		= xhci_plat_pm_restore,
 	SET_RUNTIME_PM_OPS(xhci_plat_runtime_suspend, xhci_plat_runtime_resume,
 			   xhci_plat_runtime_idle)
 };
