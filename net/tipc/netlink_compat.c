@@ -262,14 +262,8 @@ static int tipc_nl_compat_dumpit(struct tipc_nl_compat_cmd_dump *cmd,
 	if (msg->rep_type)
 		tipc_tlv_init(msg->rep, msg->rep_type);
 
-	if (cmd->header) {
-		err = (*cmd->header)(msg);
-		if (err) {
-			kfree_skb(msg->rep);
-			msg->rep = NULL;
-			return err;
-		}
-	}
+	if (cmd->header)
+		(*cmd->header)(msg);
 
 	arg = nlmsg_new(0, GFP_KERNEL);
 	if (!arg) {
@@ -394,12 +388,7 @@ static int tipc_nl_compat_bearer_enable(struct tipc_nl_compat_cmd_doit *cmd,
 	if (!bearer)
 		return -EMSGSIZE;
 
-	len = TLV_GET_DATA_LEN(msg->req);
-	len -= offsetof(struct tipc_bearer_config, name);
-	if (len <= 0)
-		return -EINVAL;
-
-	len = min_t(int, len, TIPC_MAX_BEARER_NAME);
+	len = min_t(int, TLV_GET_DATA_LEN(msg->req), TIPC_MAX_BEARER_NAME);
 	if (!string_is_valid(b->name, len))
 		return -EINVAL;
 
@@ -768,12 +757,7 @@ static int tipc_nl_compat_link_set(struct tipc_nl_compat_cmd_doit *cmd,
 
 	lc = (struct tipc_link_config *)TLV_DATA(msg->req);
 
-	len = TLV_GET_DATA_LEN(msg->req);
-	len -= offsetof(struct tipc_link_config, name);
-	if (len <= 0)
-		return -EINVAL;
-
-	len = min_t(int, len, TIPC_MAX_LINK_NAME);
+	len = min_t(int, TLV_GET_DATA_LEN(msg->req), TIPC_MAX_LINK_NAME);
 	if (!string_is_valid(lc->name, len))
 		return -EINVAL;
 
