@@ -9,7 +9,7 @@ extern atomic_t sched_smt_present;
 
 static __always_inline bool sched_smt_active(void)
 {
-    return atomic_read(&sched_smt_present);
+	return atomic_read(&sched_smt_present);
 }
 #else
 static inline bool sched_smt_active(void) { return false; }
