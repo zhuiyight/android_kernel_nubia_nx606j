@@ -99,16 +99,16 @@
 				05 01 00 00 28 00 01 28
 				05 01 00 00 78 00 01 10];
 
-				nuiba,mdss-dsi-cabc-command-cabc-off = [
+				nubia,mdss-dsi-cabc-command-cabc-off = [
 				15 01 00 00 00 00 02 53 24
                                 15 01 00 00 00 00 02 55 00];
-                                nuiba,mdss-dsi-cabc-command-cabc-level1 = [
+                                nubia,mdss-dsi-cabc-command-cabc-level1 = [
 				15 01 00 00 00 00 02 53 2c
                                 15 01 00 00 00 00 02 55 01];
-                                nuiba,mdss-dsi-cabc-command-cabc-level2 = [
+                                nubia,mdss-dsi-cabc-command-cabc-level2 = [
 				15 01 00 00 00 00 02 53 2c
                                 15 01 00 00 00 00 02 55 02];
-                                nuiba,mdss-dsi-cabc-command-cabc-level3 = [
+                                nubia,mdss-dsi-cabc-command-cabc-level3 = [
 				15 01 00 00 00 00 02 53 2c
                                 15 01 00 00 00 00 02 55 03];
         qcom,esd-check-enabled;
@@ -119,10 +119,10 @@
         qcom,mdss-dsi-panel-on-check-value = <0x9C>;
         qcom,mdss-dsi-panel-status-read-length = <1>;
 
-				nuiba,mdss-dsi-cabc-command-cabc-off-state = "dsi_hs_mode";
-				nuiba,mdss-dsi-cabc-command-cabc-off-level1 = "dsi_hs_mode";
-				nuiba,mdss-dsi-cabc-command-cabc-off-level2 = "dsi_hs_mode";
-				nuiba,mdss-dsi-cabc-command-cabc-off-level3 = "dsi_hs_mode";
+				nubia,mdss-dsi-cabc-command-cabc-off-state = "dsi_hs_mode";
+				nubia,mdss-dsi-cabc-command-cabc-off-level1 = "dsi_hs_mode";
+				nubia,mdss-dsi-cabc-command-cabc-off-level2 = "dsi_hs_mode";
+				nubia,mdss-dsi-cabc-command-cabc-off-level3 = "dsi_hs_mode";
 
 				qcom,mdss-dsi-on-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
