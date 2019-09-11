@@ -325,16 +325,10 @@ validate_group(struct perf_event *event)
 	return 0;
 }
 
-static struct arm_pmu_platdata *armpmu_get_platdata(struct arm_pmu *armpmu)
-{
-	struct platform_device *pdev = armpmu->plat_device;
-
-	return pdev ? dev_get_platdata(&pdev->dev) : NULL;
-}
-
 static irqreturn_t armpmu_dispatch_irq(int irq, void *dev)
 {
 	struct arm_pmu *armpmu;
+	struct platform_device *plat_device;
 	struct arm_pmu_platdata *plat;
 	int ret;
 	u64 start_clock, finish_clock;
@@ -346,8 +340,8 @@ static irqreturn_t armpmu_dispatch_irq(int irq, void *dev)
 	 * dereference.
 	 */
 	armpmu = *(void **)dev;
-
-	plat = armpmu_get_platdata(armpmu);
+	plat_device = armpmu->plat_device;
+	plat = dev_get_platdata(&plat_device->dev);
 
 	start_clock = sched_clock();
 	if (plat && plat->handle_irq)
@@ -752,7 +746,11 @@ static void cpu_pm_pmu_setup(struct arm_pmu *armpmu, unsigned long cmd)
 		if (!event)
 			continue;
 
-		if (event->state != PERF_EVENT_STATE_ACTIVE)
+		/*
+		 * Check if an attempt was made to free this event during
+		 * the CPU went offline.
+		 */
+		if (event->state == PERF_EVENT_STATE_ZOMBIE)
 			continue;
 
 		switch (cmd) {
@@ -878,8 +876,10 @@ static int arm_perf_starting_cpu(unsigned int cpu, struct hlist_node *node)
 	if (!pmu || !cpumask_test_cpu(cpu, &pmu->supported_cpus))
 		return 0;
 
-	if (pmu->reset)
-		pmu->reset(pmu);
+	data.cmd    = CPU_PM_EXIT;
+	cpu_pm_pmu_common(&data);
+	if (data.ret == NOTIFY_DONE)
+		return 0;
 
 	if (data.armpmu->pmu_state != ARM_PMU_STATE_OFF &&
 		data.armpmu->plat_device) {
@@ -905,6 +905,8 @@ static int arm_perf_stopping_cpu(unsigned int cpu, struct hlist_node *node)
 	if (!pmu || !cpumask_test_cpu(cpu, &pmu->supported_cpus))
 		return 0;
 
+	data.cmd = CPU_PM_ENTER;
+	cpu_pm_pmu_common(&data);
 	/* Disarm the PMU IRQ before disappearing. */
 	if (data.armpmu->pmu_state == ARM_PMU_STATE_RUNNING &&
 		data.armpmu->plat_device) {
@@ -1106,7 +1108,7 @@ int arm_pmu_device_probe(struct platform_device *pdev,
 			 const struct pmu_probe_info *probe_table)
 {
 	const struct of_device_id *of_id;
-	int (*init_fn)(struct arm_pmu *);
+	const int (*init_fn)(struct arm_pmu *);
 	struct device_node *node = pdev->dev.of_node;
 	struct arm_pmu *pmu;
 	int ret = -ENODEV;
@@ -1120,7 +1122,6 @@ int arm_pmu_device_probe(struct platform_device *pdev,
 	armpmu_init(pmu);
 
 	pmu->plat_device = pdev;
-	platform_set_drvdata(pdev, pmu);
 
 	if (node && (of_id = of_match_node(of_table, pdev->dev.of_node))) {
 		init_fn = of_id->data;

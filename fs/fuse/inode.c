@@ -22,6 +22,10 @@
 #include <linux/exportfs.h>
 #include <linux/posix_acl.h>
 
+//Nubia FileObserver Begin
+#include "file_observer.h"
+//Nubia FileObserver End
+
 MODULE_AUTHOR("Miklos Szeredi <miklos@szeredi.hu>");
 MODULE_DESCRIPTION("Filesystem in Userspace");
 MODULE_LICENSE("GPL");
@@ -30,7 +34,7 @@ static struct kmem_cache *fuse_inode_cachep;
 struct list_head fuse_conn_list;
 DEFINE_MUTEX(fuse_mutex);
 
-static int set_global_limit(const char *val, const struct kernel_param *kp);
+static int set_global_limit(const char *val, struct kernel_param *kp);
 
 unsigned max_user_bgreq;
 module_param_call(max_user_bgreq, set_global_limit, param_get_uint,
@@ -356,21 +360,15 @@ int fuse_reverse_inval_inode(struct super_block *sb, u64 nodeid,
 	return 0;
 }
 
-bool fuse_lock_inode(struct inode *inode)
+void fuse_lock_inode(struct inode *inode)
 {
-	bool locked = false;
-
-	if (!get_fuse_conn(inode)->parallel_dirops) {
+	if (!get_fuse_conn(inode)->parallel_dirops)
 		mutex_lock(&get_fuse_inode(inode)->mutex);
-		locked = true;
-	}
-
-	return locked;
 }
 
-void fuse_unlock_inode(struct inode *inode, bool locked)
+void fuse_unlock_inode(struct inode *inode)
 {
-	if (locked)
+	if (!get_fuse_conn(inode)->parallel_dirops)
 		mutex_unlock(&get_fuse_inode(inode)->mutex);
 }
 
@@ -402,6 +400,9 @@ static void fuse_put_super(struct super_block *sb)
 {
 	struct fuse_conn *fc = get_fuse_conn_super(sb);
 
+	fuse_send_destroy(fc);
+
+	fuse_abort_conn(fc);
 	mutex_lock(&fuse_mutex);
 	list_del(&fc->entry);
 	fuse_ctl_remove_conn(fc);
@@ -830,7 +831,7 @@ static void sanitize_global_limit(unsigned *limit)
 		*limit = (1 << 16) - 1;
 }
 
-static int set_global_limit(const char *val, const struct kernel_param *kp)
+static int set_global_limit(const char *val, struct kernel_param *kp)
 {
 	int rv;
 
@@ -1193,7 +1194,6 @@ static int fuse_fill_super(struct super_block *sb, void *data, int silent)
  err_put_conn:
 	fuse_bdi_destroy(fc);
 	fuse_conn_put(fc);
-	sb->s_fs_info = NULL;
  err_fput:
 	fput(file);
  err:
@@ -1207,25 +1207,16 @@ static struct dentry *fuse_mount(struct file_system_type *fs_type,
 	return mount_nodev(fs_type, flags, raw_data, fuse_fill_super);
 }
 
-static void fuse_sb_destroy(struct super_block *sb)
+static void fuse_kill_sb_anon(struct super_block *sb)
 {
 	struct fuse_conn *fc = get_fuse_conn_super(sb);
 
 	if (fc) {
-		fuse_send_destroy(fc);
-
-		fuse_abort_conn(fc);
-		fuse_wait_aborted(fc);
-
 		down_write(&fc->killsb);
 		fc->sb = NULL;
 		up_write(&fc->killsb);
 	}
-}
 
-static void fuse_kill_sb_anon(struct super_block *sb)
-{
-	fuse_sb_destroy(sb);
 	kill_anon_super(sb);
 }
 
@@ -1248,7 +1239,14 @@ static struct dentry *fuse_mount_blk(struct file_system_type *fs_type,
 
 static void fuse_kill_sb_blk(struct super_block *sb)
 {
-	fuse_sb_destroy(sb);
+	struct fuse_conn *fc = get_fuse_conn_super(sb);
+
+	if (fc) {
+		down_write(&fc->killsb);
+		fc->sb = NULL;
+		up_write(&fc->killsb);
+	}
+
 	kill_block_super(sb);
 }
 
@@ -1388,6 +1386,10 @@ static int __init fuse_init(void)
 	sanitize_global_limit(&max_user_bgreq);
 	sanitize_global_limit(&max_user_congthresh);
 
+        //Nubia FileObserver Begin
+        fuse_init_file_observer();
+        //Nubia FileObserver End
+
 	return 0;
 
  err_sysfs_cleanup:
@@ -1403,6 +1405,10 @@ static int __init fuse_init(void)
 static void __exit fuse_exit(void)
 {
 	printk(KERN_DEBUG "fuse exit\n");
+
+        //Nubia FileObserver Begin
+        fuse_exit_file_observer();
+        //Nubia FileObserver End
 
 	fuse_ctl_cleanup();
 	fuse_sysfs_cleanup();

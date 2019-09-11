@@ -148,9 +148,15 @@ config DRM_SDE_RSC
           can vote their active state. Any active request from any client
           avoids the display core power collapse. A client can also register
           for display core power collapse events on rsc.
-
-config DRM_SDE_XLOG_DEBUG
-	bool "Trigger a panic after the dumping work has completed when SDE error"
+config NUBIA_LCD_BACKLIGHT_CURVE
+	bool "nubia lcd backlight correct curve for brightness"
 	default n
-	depends on DRM_MSM
+config NUBIA_LCD_DISP_PREFERENCE
+	bool "nubia lcd disp preference includes color enhancement and temperature"
+	default n
+
+
+config NUBIA_SWITCH_LCD
+    bool "nubia switch lcd for NX616J project"
+	default n
 

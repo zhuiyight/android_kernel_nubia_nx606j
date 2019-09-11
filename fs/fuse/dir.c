@@ -13,6 +13,9 @@
 #include <linux/sched.h>
 #include <linux/namei.h>
 #include <linux/slab.h>
+//Nubia FileObserver Begin
+#include "file_observer.h"
+//Nubia FileObserver End
 #include <linux/xattr.h>
 #include <linux/posix_acl.h>
 
@@ -401,12 +404,11 @@ static struct dentry *fuse_lookup(struct inode *dir, struct dentry *entry,
 	struct inode *inode;
 	struct dentry *newent;
 	bool outarg_valid = true;
-	bool locked;
 
-	locked = fuse_lock_inode(dir);
+	fuse_lock_inode(dir);
 	err = fuse_lookup_name(dir->i_sb, get_node_id(dir), &entry->d_name,
 			       &outarg, &inode);
-	fuse_unlock_inode(dir, locked);
+	fuse_unlock_inode(dir);
 	if (err == -ENOENT) {
 		outarg_valid = false;
 		err = 0;
@@ -638,6 +640,7 @@ static int fuse_mknod(struct inode *dir, struct dentry *entry, umode_t mode,
 {
 	struct fuse_mknod_in inarg;
 	struct fuse_conn *fc = get_fuse_conn(dir);
+        int ret = 0;
 	FUSE_ARGS(args);
 
 	if (!fc->dont_mask)
@@ -653,7 +656,11 @@ static int fuse_mknod(struct inode *dir, struct dentry *entry, umode_t mode,
 	args.in.args[0].value = &inarg;
 	args.in.args[1].size = entry->d_name.len + 1;
 	args.in.args[1].value = entry->d_name.name;
-	return create_new_entry(fc, &args, dir, entry, mode);
+	ret = create_new_entry(fc, &args, dir, entry, mode);
+        //Nubia FileObserver Begin
+        fuse_post_file_create(entry);
+        //Nubia FileObserver End
+        return ret;
 }
 
 static int fuse_create(struct inode *dir, struct dentry *entry, umode_t mode,
@@ -666,6 +673,7 @@ static int fuse_mkdir(struct inode *dir, struct dentry *entry, umode_t mode)
 {
 	struct fuse_mkdir_in inarg;
 	struct fuse_conn *fc = get_fuse_conn(dir);
+        int ret = 0;
 	FUSE_ARGS(args);
 
 	if (!fc->dont_mask)
@@ -680,7 +688,11 @@ static int fuse_mkdir(struct inode *dir, struct dentry *entry, umode_t mode)
 	args.in.args[0].value = &inarg;
 	args.in.args[1].size = entry->d_name.len + 1;
 	args.in.args[1].value = entry->d_name.name;
-	return create_new_entry(fc, &args, dir, entry, S_IFDIR);
+	ret = create_new_entry(fc, &args, dir, entry, S_IFDIR);
+        //Nubia FileObserver Begin
+        fuse_post_file_mkdir(dir, entry);
+        //Nubia FileObserver End
+        return ret;
 }
 
 static int fuse_symlink(struct inode *dir, struct dentry *entry,
@@ -738,6 +750,9 @@ static int fuse_unlink(struct inode *dir, struct dentry *entry)
 		fuse_invalidate_attr(dir);
 		fuse_invalidate_entry_cache(entry);
 		fuse_update_ctime(inode);
+                //Nubia FileObserver Begin
+                fuse_post_file_unlink(dir, entry);
+                //Nubia FileObserver End
 	} else if (err == -EINTR)
 		fuse_invalidate_entry(entry);
 	return err;
@@ -759,6 +774,9 @@ static int fuse_rmdir(struct inode *dir, struct dentry *entry)
 		clear_nlink(d_inode(entry));
 		fuse_invalidate_attr(dir);
 		fuse_invalidate_entry_cache(entry);
+                //Nubia FileObserver Begin
+                fuse_post_file_rmdir(dir, entry);
+                //Nubia FileObserver End
 	} else if (err == -EINTR)
 		fuse_invalidate_entry(entry);
 	return err;
@@ -806,6 +824,9 @@ static int fuse_rename_common(struct inode *olddir, struct dentry *oldent,
 			fuse_invalidate_entry_cache(newent);
 			fuse_update_ctime(d_inode(newent));
 		}
+                //Nubia FileObserver Begin
+                fuse_post_file_rename(olddir, oldent, newdir, newent);
+                //Nubia FileObserver End
 	} else if (err == -EINTR) {
 		/* If request was interrupted, DEITY only knows if the
 		   rename actually took place.  If the invalidation
@@ -1386,7 +1407,6 @@ static int fuse_readdir(struct file *file, struct dir_context *ctx)
 	struct fuse_conn *fc = get_fuse_conn(inode);
 	struct fuse_req *req;
 	u64 attr_version = 0;
-	bool locked;
 
 	if (is_bad_inode(inode))
 		return -EIO;
@@ -1414,9 +1434,9 @@ static int fuse_readdir(struct file *file, struct dir_context *ctx)
 		fuse_read_fill(req, file, ctx->pos, PAGE_SIZE,
 			       FUSE_READDIR);
 	}
-	locked = fuse_lock_inode(inode);
+	fuse_lock_inode(inode);
 	fuse_request_send(fc, req);
-	fuse_unlock_inode(inode, locked);
+	fuse_unlock_inode(inode);
 	nbytes = req->out.args[0].size;
 	err = req->out.h.error;
 	fuse_put_request(fc, req);
@@ -1684,19 +1704,8 @@ int fuse_do_setattr(struct dentry *dentry, struct iattr *attr,
 		return err;
 
 	if (attr->ia_valid & ATTR_OPEN) {
-		/* This is coming from open(..., ... | O_TRUNC); */
-		WARN_ON(!(attr->ia_valid & ATTR_SIZE));
-		WARN_ON(attr->ia_size != 0);
-		if (fc->atomic_o_trunc) {
-			/*
-			 * No need to send request to userspace, since actual
-			 * truncation has already been done by OPEN.  But still
-			 * need to truncate page cache.
-			 */
-			i_size_write(inode, 0);
-			truncate_pagecache(inode, 0);
+		if (fc->atomic_o_trunc)
 			return 0;
-		}
 		file = NULL;
 	}
 

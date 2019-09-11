@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
- * Copyright (C) 2018 XiaoMi, Inc.
+ * Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -39,7 +38,7 @@
 #define CONFIG_SND_SOC_QDSP6V2 1
 #define CONFIG_MSM_CDC_PINCTRL 1
 #define CONFIG_QTI_PP 1
-#define CONFIG_SND_HWDEP_ROUTING 1
+#define CONFIG_SND_HWDEP 1
 #define CONFIG_DTS_EAGLE 1
 #define CONFIG_DOLBY_DS2 1
 #define CONFIG_DOLBY_LICENSE 1
@@ -49,9 +48,4 @@
 #define CONFIG_WCD_DSP_GLINK 1
 #define CONFIG_MSM_AVTIMER 1
 #define CONFIG_SND_SOC_MSM_HDMI_CODEC_RX 1
-#define CONFIG_SND_SOC_TAS2557 1
-#define CONFIG_SND_SOC_TAS2559 1
-#define CONFIG_TAS2557_CODEC 1
-#define CONFIG_TAS2557_MISC 1
-#define CONFIG_TAS2557_REGMAP 1
-#define CONFIG_WCD_SPI_AC 1
+#define CONFIG_ZTEMT_AUDIO 1

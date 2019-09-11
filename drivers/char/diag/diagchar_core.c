@@ -162,7 +162,7 @@ static struct mutex apps_data_mutex;
 
 #define DIAGPKT_MAX_DELAYED_RSP 0xFFFF
 
-#ifdef CONFIG_IPC_LOGGING
+#ifdef DIAG_DEBUG
 uint16_t diag_debug_mask;
 void *diag_ipc_log;
 #endif
@@ -213,19 +213,17 @@ static void drain_timer_func(unsigned long data)
 static void diag_drain_apps_data(struct diag_apps_data_t *data)
 {
 	int err = 0;
-	unsigned long flags;
 
 	if (!data || !data->buf)
 		return;
 
 	err = diag_mux_write(DIAG_LOCAL_PROC, data->buf, data->len,
 			     data->ctxt);
-	spin_lock_irqsave(&driver->diagmem_lock, flags);
 	if (err)
 		diagmem_free(driver, data->buf, POOL_TYPE_HDLC);
+
 	data->buf = NULL;
 	data->len = 0;
-	spin_unlock_irqrestore(&driver->diagmem_lock, flags);
 }
 
 void diag_update_user_client_work_fn(struct work_struct *work)
@@ -240,13 +238,18 @@ static void diag_update_md_client_work_fn(struct work_struct *work)
 
 void diag_drain_work_fn(struct work_struct *work)
 {
+	struct diag_md_session_t *session_info = NULL;
 	uint8_t hdlc_disabled = 0;
 
 	timer_in_progress = 0;
 	mutex_lock(&apps_data_mutex);
-	mutex_lock(&driver->hdlc_disable_mutex);
-	hdlc_disabled = driver->p_hdlc_disabled[APPS_DATA];
-	mutex_unlock(&driver->hdlc_disable_mutex);
+	mutex_lock(&driver->md_session_lock);
+	session_info = diag_md_session_get_peripheral(APPS_DATA);
+	if (session_info)
+		hdlc_disabled = session_info->hdlc_disabled;
+	else
+		hdlc_disabled = driver->hdlc_disabled;
+	mutex_unlock(&driver->md_session_lock);
 	if (!hdlc_disabled)
 		diag_drain_apps_data(&hdlc_data);
 	else
@@ -296,8 +299,6 @@ static void diag_mempool_init(void)
 	diagmem_init(driver, POOL_TYPE_HDLC);
 	diagmem_init(driver, POOL_TYPE_USER);
 	diagmem_init(driver, POOL_TYPE_DCI);
-
-	spin_lock_init(&driver->diagmem_lock);
 }
 
 static void diag_mempool_exit(void)
@@ -463,6 +464,10 @@ static void diag_close_logging_process(const int pid)
 	if (diag_mask_clear_param)
 		diag_clear_masks(pid);
 
+	mutex_lock(&driver->diag_maskclear_mutex);
+	driver->mask_clear = 1;
+	mutex_unlock(&driver->diag_maskclear_mutex);
+
 	mutex_lock(&driver->diagchar_mutex);
 	p_mask =
 	diag_translate_kernel_to_user_mask(session_mask);
@@ -556,10 +561,12 @@ static int diagchar_close(struct inode *inode, struct file *file)
 {
 	int ret;
 
-	DIAG_LOG(DIAG_DEBUG_USERSPACE, "diag: %s process exit with pid = %d\n",
-		current->comm, current->tgid);
+	DIAG_LOG(DIAG_DEBUG_USERSPACE, "diag: process exit %s\n",
+		current->comm);
 	ret = diag_remove_client_entry(file);
-
+	mutex_lock(&driver->diag_maskclear_mutex);
+	driver->mask_clear = 0;
+	mutex_unlock(&driver->diag_maskclear_mutex);
 	return ret;
 }
 
@@ -973,9 +980,6 @@ static int diag_remote_init(void)
 			poolsize_mdm_dci_write);
 	diagmem_setsize(POOL_TYPE_QSC_MUX, itemsize_qsc_usb,
 			poolsize_qsc_usb);
-	diag_md_mdm_init();
-	if (diag_dci_init_remote())
-		return -ENOMEM;
 	driver->hdlc_encode_buf = kzalloc(DIAG_MAX_HDLC_BUF_SIZE, GFP_KERNEL);
 	if (!driver->hdlc_encode_buf)
 		return -ENOMEM;
@@ -999,6 +1003,7 @@ static int diag_send_raw_data_remote(int proc, void *buf, int len,
 	struct diag_send_desc_type send = { NULL, NULL, DIAG_STATE_START, 0 };
 	struct diag_hdlc_dest_type enc = { NULL, NULL, 0 };
 	int bridge_index = proc - 1;
+	struct diag_md_session_t *session_info = NULL;
 	uint8_t hdlc_disabled = 0;
 
 	if (!buf)
@@ -1024,9 +1029,13 @@ static int diag_send_raw_data_remote(int proc, void *buf, int len,
 
 	if (driver->hdlc_encode_buf_len != 0)
 		return -EAGAIN;
-	mutex_lock(&driver->hdlc_disable_mutex);
-	hdlc_disabled = driver->p_hdlc_disabled[APPS_DATA];
-	mutex_unlock(&driver->hdlc_disable_mutex);
+	mutex_lock(&driver->md_session_lock);
+	session_info = diag_md_session_get_peripheral(APPS_DATA);
+	if (session_info)
+		hdlc_disabled = session_info->hdlc_disabled;
+	else
+		hdlc_disabled = driver->hdlc_disabled;
+	mutex_unlock(&driver->md_session_lock);
 	if (hdlc_disabled) {
 		if (len < 4) {
 			pr_err("diag: In %s, invalid len: %d of non_hdlc pkt",
@@ -1268,8 +1277,7 @@ static void diag_md_session_exit(void)
 			diag_log_mask_free(session_info->log_mask);
 			kfree(session_info->log_mask);
 			session_info->log_mask = NULL;
-			diag_msg_mask_free(session_info->msg_mask,
-				session_info);
+			diag_msg_mask_free(session_info->msg_mask);
 			kfree(session_info->msg_mask);
 			session_info->msg_mask = NULL;
 			diag_event_mask_free(session_info->event_mask);
@@ -1340,9 +1348,7 @@ int diag_md_session_create(int mode, int peripheral_mask, int proc)
 			 "return value of event copy. err %d\n", err);
 		goto fail_peripheral;
 	}
-	new_session->msg_mask_tbl_count = 0;
-	err = diag_msg_mask_copy(new_session, new_session->msg_mask,
-		&msg_mask);
+	err = diag_msg_mask_copy(new_session->msg_mask, &msg_mask);
 	if (err) {
 		DIAG_LOG(DIAG_DEBUG_USERSPACE,
 			 "return value of msg copy. err %d\n", err);
@@ -1378,8 +1384,7 @@ fail_peripheral:
 	diag_event_mask_free(new_session->event_mask);
 	kfree(new_session->event_mask);
 	new_session->event_mask = NULL;
-	diag_msg_mask_free(new_session->msg_mask,
-		new_session);
+	diag_msg_mask_free(new_session->msg_mask);
 	kfree(new_session->msg_mask);
 	new_session->msg_mask = NULL;
 	kfree(new_session);
@@ -1407,8 +1412,7 @@ static void diag_md_session_close(int pid)
 	diag_log_mask_free(session_info->log_mask);
 	kfree(session_info->log_mask);
 	session_info->log_mask = NULL;
-	diag_msg_mask_free(session_info->msg_mask,
-		session_info);
+	diag_msg_mask_free(session_info->msg_mask);
 	kfree(session_info->msg_mask);
 	session_info->msg_mask = NULL;
 	diag_event_mask_free(session_info->event_mask);
@@ -1445,43 +1449,6 @@ struct diag_md_session_t *diag_md_session_get_peripheral(uint8_t peripheral)
 	if (peripheral >= NUM_MD_SESSIONS)
 		return NULL;
 	return driver->md_session_map[peripheral];
-}
-
-/*
- * diag_md_session_match_pid_peripheral
- *
- *	1. Pass valid PID and get all the peripherals in logging session
- *		for that PID
- *	2. Pass valid Peipheral and get the pid logging for that peripheral
- *
- */
-
-int diag_md_session_match_pid_peripheral(int pid,
-	uint8_t peripheral)
-{
-	int i, flag = 0;
-
-	if (pid <= 0 || peripheral >= NUM_MD_SESSIONS)
-		return -EINVAL;
-
-	if (!peripheral) {
-		for (i = 0; i < NUM_MD_SESSIONS; i++) {
-			if (driver->md_session_map[i] &&
-			    driver->md_session_map[i]->pid == pid) {
-				peripheral |= 1 << i;
-				flag = 1;
-			}
-		}
-		if (flag)
-			return peripheral;
-	}
-
-	if (!pid) {
-		if (driver->md_session_map[peripheral])
-			return driver->md_session_map[peripheral]->pid;
-	}
-
-	return -EINVAL;
 }
 
 static int diag_md_peripheral_switch(int pid,
@@ -1638,13 +1605,6 @@ static int diag_md_session_check(int curr_mode, int req_mode,
 			}
 			err = diag_md_session_create(DIAG_MD_PERIPHERAL,
 				param->peripheral_mask, DIAG_LOCAL_PROC);
-			mutex_lock(&driver->hdlc_disable_mutex);
-			for (i = 0; i < NUM_MD_SESSIONS; i++) {
-				if ((param->peripheral_mask > 0) &&
-					(param->peripheral_mask & (1 << i)))
-					driver->p_hdlc_disabled[i] = 0;
-			}
-			mutex_unlock(&driver->hdlc_disable_mutex);
 		}
 		*change_mode = 1;
 		return err;
@@ -1677,51 +1637,6 @@ static uint32_t diag_translate_mask(uint32_t peripheral_mask)
 	if (peripheral_mask & DIAG_CON_UPD_SENSORS)
 		ret |= (1 << UPD_SENSORS);
 	return ret;
-}
-
-static void diag_switch_logging_clear_mask(
-		struct diag_logging_mode_param_t *param, int pid)
-{
-	int new_mode;
-	struct diag_md_session_t *session_info = NULL;
-
-	mutex_lock(&driver->md_session_lock);
-	session_info = diag_md_session_get_pid(pid);
-	if (!session_info) {
-		DIAG_LOG(DIAG_DEBUG_USERSPACE, "Invalid pid: %d\n", pid);
-		mutex_unlock(&driver->md_session_lock);
-		return;
-	}
-	mutex_unlock(&driver->md_session_lock);
-
-	if (!param)
-		return;
-
-	if (!param->peripheral_mask) {
-		DIAG_LOG(DIAG_DEBUG_USERSPACE,
-			"asking for mode switch with no peripheral mask set\n");
-		return;
-	}
-
-	switch (param->req_mode) {
-	case CALLBACK_MODE:
-	case UART_MODE:
-	case SOCKET_MODE:
-	case MEMORY_DEVICE_MODE:
-		new_mode = DIAG_MEMORY_DEVICE_MODE;
-		break;
-	case USB_MODE:
-		new_mode = DIAG_USB_MODE;
-		break;
-	default:
-		DIAG_LOG(DIAG_DEBUG_USERSPACE,
-			"Request to switch to invalid mode: %d\n",
-			param->req_mode);
-		return;
-	}
-	if ((new_mode == DIAG_USB_MODE) && diag_mask_clear_param)
-		diag_clear_masks(pid);
-
 }
 
 static int diag_switch_logging(struct diag_logging_mode_param_t *param)
@@ -1763,7 +1678,7 @@ static int diag_switch_logging(struct diag_logging_mode_param_t *param)
 
 		if (!param->diag_id ||
 			(param->pd_val < UPD_WLAN) ||
-			(param->pd_val >= NUM_MD_SESSIONS)) {
+			(param->pd_val > NUM_MD_SESSIONS)) {
 			DIAG_LOG(DIAG_DEBUG_USERSPACE,
 			"diag_id support is not present for the pd mask = %d\n",
 			param->pd_mask);
@@ -2154,14 +2069,11 @@ static int diag_ioctl_dci_support(unsigned long ioarg)
 
 static int diag_ioctl_hdlc_toggle(unsigned long ioarg)
 {
-	uint8_t hdlc_support, i;
-	int peripheral = -EINVAL;
+	uint8_t hdlc_support;
 	struct diag_md_session_t *session_info = NULL;
-
 	if (copy_from_user(&hdlc_support, (void __user *)ioarg,
 				sizeof(uint8_t)))
 		return -EFAULT;
-
 	mutex_lock(&driver->hdlc_disable_mutex);
 	mutex_lock(&driver->md_session_lock);
 	session_info = diag_md_session_get_pid(current->tgid);
@@ -2169,25 +2081,6 @@ static int diag_ioctl_hdlc_toggle(unsigned long ioarg)
 		session_info->hdlc_disabled = hdlc_support;
 	else
 		driver->hdlc_disabled = hdlc_support;
-
-	peripheral =
-		diag_md_session_match_pid_peripheral(current->tgid,
-		0);
-	for (i = 0; i < NUM_MD_SESSIONS; i++) {
-		if (peripheral > 0 && session_info) {
-			if (peripheral & (1 << i))
-				driver->p_hdlc_disabled[i] =
-				session_info->hdlc_disabled;
-			else if (!diag_md_session_get_peripheral(i))
-				driver->p_hdlc_disabled[i] =
-				driver->hdlc_disabled;
-		} else {
-			if (!diag_md_session_get_peripheral(i))
-				driver->p_hdlc_disabled[i] =
-				driver->hdlc_disabled;
-		}
-	}
-
 	mutex_unlock(&driver->md_session_lock);
 	mutex_unlock(&driver->hdlc_disable_mutex);
 	diag_update_md_clients(HDLC_SUPPORT_TYPE);
@@ -2360,93 +2253,6 @@ static int diag_ioctl_query_pd_logging(struct diag_logging_mode_param_t *param)
 	return ret;
 }
 
-static void diag_ioctl_query_session_pid(struct diag_query_pid_t *param)
-{
-	int prev_pid = 0, test_pid = 0, i = 0, count = 0;
-	uint32_t pd_mask = 0, peripheral_mask = 0;
-	struct diag_md_session_t *info = NULL;
-
-	param->pid = 0;
-
-	if (param->pd_mask && param->peripheral_mask) {
-		param->pid = -EINVAL;
-		return;
-	} else if (param->peripheral_mask) {
-		if (param->peripheral_mask == DIAG_CON_ALL) {
-			for (i = 0; i <= NUM_PERIPHERALS; i++) {
-				if (driver->md_session_map[i]) {
-					test_pid =
-					driver->md_session_map[i]->pid;
-					count++;
-					if (!prev_pid)
-						prev_pid = test_pid;
-					if (test_pid != prev_pid) {
-						DIAG_LOG(DIAG_DEBUG_USERSPACE,
-						"diag: One of the peripherals is being logged already\n");
-						param->pid = -EINVAL;
-					}
-				}
-			}
-			if (i == count && prev_pid)
-				param->pid = prev_pid;
-		} else {
-			peripheral_mask =
-				diag_translate_mask(param->peripheral_mask);
-			for (i = 0; i <= NUM_PERIPHERALS; i++) {
-				if (driver->md_session_map[i] &&
-					(peripheral_mask &
-					MD_PERIPHERAL_MASK(i))) {
-					info = driver->md_session_map[i];
-					if (peripheral_mask !=
-						info->peripheral_mask) {
-						DIAG_LOG(DIAG_DEBUG_USERSPACE,
-						"diag: Invalid Peripheral mask given as input\n");
-						param->pid = -EINVAL;
-						return;
-					}
-					test_pid = info->pid;
-					if (!prev_pid)
-						prev_pid = test_pid;
-					if (test_pid != prev_pid) {
-						DIAG_LOG(DIAG_DEBUG_USERSPACE,
-						"diag: One of the peripherals is logged in different session\n");
-						param->pid = -EINVAL;
-						return;
-					}
-				}
-			}
-			param->pid = prev_pid;
-		}
-	} else if (param->pd_mask) {
-		pd_mask =
-			diag_translate_mask(param->pd_mask);
-		for (i = UPD_WLAN; i < NUM_MD_SESSIONS; i++) {
-			if (driver->md_session_map[i] &&
-				(pd_mask & MD_PERIPHERAL_MASK(i))) {
-				info = driver->md_session_map[i];
-				if (pd_mask != info->peripheral_mask) {
-					DIAG_LOG(DIAG_DEBUG_USERSPACE,
-					"diag: Invalid PD mask given as input\n");
-					param->pid = -EINVAL;
-					return;
-				}
-				test_pid = info->pid;
-				if (!prev_pid)
-					prev_pid = test_pid;
-				if (test_pid != prev_pid) {
-					DIAG_LOG(DIAG_DEBUG_USERSPACE,
-					"diag: One of the PDs is being logged already\n");
-					param->pid = -EINVAL;
-					return;
-				}
-			}
-		}
-		param->pid = prev_pid;
-	}
-	DIAG_LOG(DIAG_DEBUG_USERSPACE,
-	"diag: Pid for the active ODL session: %d\n", param->pid);
-}
-
 static int diag_ioctl_register_callback(unsigned long ioarg)
 {
 	int err = 0;
@@ -2573,7 +2379,6 @@ long diagchar_compat_ioctl(struct file *filp,
 	uint16_t remote_dev;
 	struct diag_dci_client_tbl *dci_client = NULL;
 	struct diag_logging_mode_param_t mode_param;
-	struct diag_query_pid_t pid_query;
 
 	switch (iocmd) {
 	case DIAG_IOCTL_COMMAND_REG:
@@ -2653,7 +2458,6 @@ long diagchar_compat_ioctl(struct file *filp,
 		if (copy_from_user((void *)&mode_param, (void __user *)ioarg,
 				   sizeof(mode_param)))
 			return -EFAULT;
-		diag_switch_logging_clear_mask(&mode_param, current->tgid);
 		mutex_lock(&driver->diagchar_mutex);
 		result = diag_switch_logging(&mode_param);
 		mutex_unlock(&driver->diagchar_mutex);
@@ -2692,22 +2496,6 @@ long diagchar_compat_ioctl(struct file *filp,
 			return -EFAULT;
 		result = diag_ioctl_query_pd_logging(&mode_param);
 		break;
-	case DIAG_IOCTL_QUERY_MD_PID:
-		if (copy_from_user((void *)&pid_query, (void __user *)ioarg,
-				   sizeof(pid_query))) {
-			result = -EFAULT;
-			break;
-		}
-		mutex_lock(&driver->md_session_lock);
-		diag_ioctl_query_session_pid(&pid_query);
-		mutex_unlock(&driver->md_session_lock);
-
-		if (copy_to_user((void __user *)ioarg, &pid_query,
-				sizeof(pid_query)))
-			result = -EFAULT;
-		else
-			result = 0;
-		break;
 	}
 	return result;
 }
@@ -2722,7 +2510,6 @@ long diagchar_ioctl(struct file *filp,
 	uint16_t remote_dev;
 	struct diag_dci_client_tbl *dci_client = NULL;
 	struct diag_logging_mode_param_t mode_param;
-	struct diag_query_pid_t pid_query;
 
 	switch (iocmd) {
 	case DIAG_IOCTL_COMMAND_REG:
@@ -2802,7 +2589,6 @@ long diagchar_ioctl(struct file *filp,
 		if (copy_from_user((void *)&mode_param, (void __user *)ioarg,
 				   sizeof(mode_param)))
 			return -EFAULT;
-		diag_switch_logging_clear_mask(&mode_param, current->tgid);
 		mutex_lock(&driver->diagchar_mutex);
 		result = diag_switch_logging(&mode_param);
 		mutex_unlock(&driver->diagchar_mutex);
@@ -2841,23 +2627,6 @@ long diagchar_ioctl(struct file *filp,
 			return -EFAULT;
 		result = diag_ioctl_query_pd_logging(&mode_param);
 		break;
-	case DIAG_IOCTL_QUERY_MD_PID:
-		if (copy_from_user((void *)&pid_query, (void __user *)ioarg,
-				   sizeof(pid_query))) {
-			result = -EFAULT;
-			break;
-		}
-
-		mutex_lock(&driver->md_session_lock);
-		diag_ioctl_query_session_pid(&pid_query);
-		mutex_unlock(&driver->md_session_lock);
-
-		if (copy_to_user((void __user *)ioarg, &pid_query,
-				sizeof(pid_query)))
-			result = -EFAULT;
-		else
-			result = 0;
-		break;
 	}
 	return result;
 }
@@ -2870,7 +2639,6 @@ static int diag_process_apps_data_hdlc(unsigned char *buf, int len,
 	struct diag_apps_data_t *data = &hdlc_data;
 	struct diag_send_desc_type send = { NULL, NULL, DIAG_STATE_START, 0 };
 	struct diag_hdlc_dest_type enc = { NULL, NULL, 0 };
-	unsigned long flags;
 	/*
 	 * The maximum encoded size of the buffer can be atmost twice the length
 	 * of the packet. Add three bytes foe footer - 16 bit CRC (2 bytes) +
@@ -2975,11 +2743,10 @@ static int diag_process_apps_data_hdlc(unsigned char *buf, int len,
 	return PKT_ALLOC;
 
 fail_free_buf:
-	spin_lock_irqsave(&driver->diagmem_lock, flags);
 	diagmem_free(driver, data->buf, POOL_TYPE_HDLC);
 	data->buf = NULL;
 	data->len = 0;
-	spin_unlock_irqrestore(&driver->diagmem_lock, flags);
+
 fail_ret:
 	return ret;
 }
@@ -2991,7 +2758,6 @@ static int diag_process_apps_data_non_hdlc(unsigned char *buf, int len,
 	int ret = PKT_DROP;
 	struct diag_pkt_frame_t header;
 	struct diag_apps_data_t *data = &non_hdlc_data;
-	unsigned long flags;
 	/*
 	 * The maximum packet size, when the data is non hdlc encoded is equal
 	 * to the size of the packet frame header and the length. Add 1 for the
@@ -3056,11 +2822,10 @@ static int diag_process_apps_data_non_hdlc(unsigned char *buf, int len,
 	return PKT_ALLOC;
 
 fail_free_buf:
-	spin_lock_irqsave(&driver->diagmem_lock, flags);
 	diagmem_free(driver, data->buf, POOL_TYPE_HDLC);
 	data->buf = NULL;
 	data->len = 0;
-	spin_unlock_irqrestore(&driver->diagmem_lock, flags);
+
 fail_ret:
 	return ret;
 }
@@ -3303,6 +3068,7 @@ static int diag_user_process_apps_data(const char __user *buf, int len,
 	int stm_size = 0;
 	const int mempool = POOL_TYPE_COPY;
 	unsigned char *user_space_data = NULL;
+	struct diag_md_session_t *session_info = NULL;
 	uint8_t hdlc_disabled;
 
 	if (!buf || len <= 0 || len > DIAG_MAX_RSP_SIZE) {
@@ -3356,14 +3122,20 @@ static int diag_user_process_apps_data(const char __user *buf, int len,
 
 	mutex_lock(&apps_data_mutex);
 	mutex_lock(&driver->hdlc_disable_mutex);
-	hdlc_disabled = driver->p_hdlc_disabled[APPS_DATA];
-	mutex_unlock(&driver->hdlc_disable_mutex);
+	mutex_lock(&driver->md_session_lock);
+	session_info = diag_md_session_get_peripheral(APPS_DATA);
+	if (session_info)
+		hdlc_disabled = session_info->hdlc_disabled;
+	else
+		hdlc_disabled = driver->hdlc_disabled;
+	mutex_unlock(&driver->md_session_lock);
 	if (hdlc_disabled)
 		ret = diag_process_apps_data_non_hdlc(user_space_data, len,
 						      pkt_type);
 	else
 		ret = diag_process_apps_data_hdlc(user_space_data, len,
 						  pkt_type);
+	mutex_unlock(&driver->hdlc_disable_mutex);
 	mutex_unlock(&apps_data_mutex);
 
 	diagmem_free(driver, user_space_data, mempool);
@@ -3392,8 +3164,6 @@ static ssize_t diagchar_read(struct file *file, char __user *buf, size_t count,
 	int exit_stat = 0;
 	int write_len = 0;
 	struct diag_md_session_t *session_info = NULL;
-	struct pid *pid_struct = NULL;
-	struct task_struct *task_s = NULL;
 
 	mutex_lock(&driver->diagchar_mutex);
 	for (i = 0; i < driver->num_clients; i++)
@@ -3638,19 +3408,8 @@ exit:
 		list_for_each_safe(start, temp, &driver->dci_client_list) {
 			entry = list_entry(start, struct diag_dci_client_tbl,
 									track);
-			pid_struct = find_get_pid(entry->tgid);
-			if (!pid_struct)
+			if (entry->client->tgid != current->tgid)
 				continue;
-			task_s = get_pid_task(pid_struct, PIDTYPE_PID);
-			if (!task_s) {
-				DIAG_LOG(DIAG_DEBUG_DCI,
-				"diag: valid task doesn't exist for pid = %d\n",
-				entry->tgid);
-				continue;
-			}
-			if (task_s == entry->client)
-				if (entry->client->tgid != current->tgid)
-					continue;
 			if (!entry->in_service)
 				continue;
 			if (copy_to_user(buf + ret, &data_type, sizeof(int))) {
@@ -3952,7 +3711,7 @@ void diag_ws_release(void)
 		pm_relax(driver->diag_dev);
 }
 
-#ifdef CONFIG_IPC_LOGGING
+#ifdef DIAG_DEBUG
 static void diag_debug_init(void)
 {
 	diag_ipc_log = ipc_log_context_create(DIAG_IPC_LOG_PAGES, "diag", 0);
@@ -4108,6 +3867,7 @@ static int __init diagchar_init(void)
 	non_hdlc_data.len = 0;
 	mutex_init(&driver->hdlc_disable_mutex);
 	mutex_init(&driver->diagchar_mutex);
+	mutex_init(&driver->diag_maskclear_mutex);
 	mutex_init(&driver->diag_notifier_mutex);
 	mutex_init(&driver->diag_file_mutex);
 	mutex_init(&driver->delayed_rsp_mutex);

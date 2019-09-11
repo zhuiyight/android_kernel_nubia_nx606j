@@ -315,9 +315,6 @@ static int search_roland_implicit_fb(struct usb_device *dev, int ifnum,
 	return 0;
 }
 
-/* Setup an implicit feedback endpoint from a quirk. Returns 0 if no quirk
- * applies. Returns 1 if a quirk was found.
- */
 static int set_sync_ep_implicit_fb_quirk(struct snd_usb_substream *subs,
 					 struct usb_device *dev,
 					 struct usb_interface_descriptor *altsd,
@@ -362,15 +359,6 @@ static int set_sync_ep_implicit_fb_quirk(struct snd_usb_substream *subs,
 
 		alts = &iface->altsetting[1];
 		goto add_sync_ep;
-	case USB_ID(0x1397, 0x0002):
-		ep = 0x81;
-		iface = usb_ifnum_to_if(dev, 1);
-
-		if (!iface || iface->num_altsetting == 0)
-			return -EINVAL;
-
-		alts = &iface->altsetting[1];
-		goto add_sync_ep;
 
 	}
 	if (attr == USB_ENDPOINT_SYNC_ASYNC &&
@@ -396,7 +384,7 @@ add_sync_ep:
 
 	subs->data_endpoint->sync_master = subs->sync_endpoint;
 
-	return 1;
+	return 0;
 }
 
 static int set_sync_endpoint(struct snd_usb_substream *subs,
@@ -434,10 +422,6 @@ static int set_sync_endpoint(struct snd_usb_substream *subs,
 	err = set_sync_ep_implicit_fb_quirk(subs, dev, altsd, attr);
 	if (err < 0)
 		return err;
-
-	/* endpoint set by quirk */
-	if (err > 0)
-		return 0;
 
 	if (altsd->bNumEndpoints < 2)
 		return 0;
@@ -502,8 +486,6 @@ static int set_sync_endpoint(struct snd_usb_substream *subs,
 	return 0;
 }
 
-extern void kick_usbpd_vbus_sm(void);
-
 /*
  * find a matching format and set up the interface
  */
@@ -554,10 +536,6 @@ static int set_format(struct snd_usb_substream *subs, struct audioformat *fmt)
 			dev_err(&dev->dev,
 				"%d:%d: usb_set_interface failed (%d)\n",
 				fmt->iface, fmt->altsetting, err);
-			if ((0x2717 == USB_ID_VENDOR(subs->stream->chip->usb_id)) &&
-					(0x3801 == USB_ID_PRODUCT(subs->stream->chip->usb_id))) {
-				kick_usbpd_vbus_sm();
-			}
 			return -EIO;
 		}
 		dev_dbg(&dev->dev, "setting usb interface %d:%d\n",
@@ -1392,7 +1370,7 @@ static void retire_capture_urb(struct snd_usb_substream *subs,
 		if (bytes % (runtime->sample_bits >> 3) != 0) {
 			int oldbytes = bytes;
 			bytes = frames * stride;
-			dev_warn_ratelimited(&subs->dev->dev,
+			dev_warn(&subs->dev->dev,
 				 "Corrected urb data len. %d->%d\n",
 							oldbytes, bytes);
 		}

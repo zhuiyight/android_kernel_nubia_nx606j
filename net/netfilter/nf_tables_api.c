@@ -263,9 +263,6 @@ static int nft_delrule_by_chain(struct nft_ctx *ctx)
 	int err;
 
 	list_for_each_entry(rule, &ctx->chain->rules, list) {
-		if (!nft_is_active_next(ctx->net, rule))
-			continue;
-
 		err = nft_delrule(ctx, rule);
 		if (err < 0)
 			return err;
@@ -2071,7 +2068,7 @@ static void nf_tables_rule_destroy(const struct nft_ctx *ctx,
 	 * is called on error from nf_tables_newrule().
 	 */
 	expr = nft_expr_first(rule);
-	while (expr != nft_expr_last(rule) && expr->ops) {
+	while (expr->ops && expr != nft_expr_last(rule)) {
 		nf_tables_expr_destroy(ctx, expr);
 		expr = nft_expr_next(expr);
 	}
@@ -2203,46 +2200,41 @@ static int nf_tables_newrule(struct net *net, struct sock *nlsk,
 	}
 
 	if (nlh->nlmsg_flags & NLM_F_REPLACE) {
-		if (!nft_is_active_next(net, old_rule)) {
+		if (nft_is_active_next(net, old_rule)) {
+			trans = nft_trans_rule_add(&ctx, NFT_MSG_DELRULE,
+						   old_rule);
+			if (trans == NULL) {
+				err = -ENOMEM;
+				goto err2;
+			}
+			nft_deactivate_next(net, old_rule);
+			chain->use--;
+			list_add_tail_rcu(&rule->list, &old_rule->list);
+		} else {
 			err = -ENOENT;
 			goto err2;
 		}
-		trans = nft_trans_rule_add(&ctx, NFT_MSG_DELRULE,
-					   old_rule);
-		if (trans == NULL) {
-			err = -ENOMEM;
-			goto err2;
-		}
-		nft_deactivate_next(net, old_rule);
-		chain->use--;
+	} else if (nlh->nlmsg_flags & NLM_F_APPEND)
+		if (old_rule)
+			list_add_rcu(&rule->list, &old_rule->list);
+		else
+			list_add_tail_rcu(&rule->list, &chain->rules);
+	else {
+		if (old_rule)
+			list_add_tail_rcu(&rule->list, &old_rule->list);
+		else
+			list_add_rcu(&rule->list, &chain->rules);
+	}
 
-		if (nft_trans_rule_add(&ctx, NFT_MSG_NEWRULE, rule) == NULL) {
-			err = -ENOMEM;
-			goto err2;
-		}
-
-		list_add_tail_rcu(&rule->list, &old_rule->list);
-	} else {
-		if (nft_trans_rule_add(&ctx, NFT_MSG_NEWRULE, rule) == NULL) {
-			err = -ENOMEM;
-			goto err2;
-		}
-
-		if (nlh->nlmsg_flags & NLM_F_APPEND) {
-			if (old_rule)
-				list_add_rcu(&rule->list, &old_rule->list);
-			else
-				list_add_tail_rcu(&rule->list, &chain->rules);
-		 } else {
-			if (old_rule)
-				list_add_tail_rcu(&rule->list, &old_rule->list);
-			else
-				list_add_rcu(&rule->list, &chain->rules);
-		}
+	if (nft_trans_rule_add(&ctx, NFT_MSG_NEWRULE, rule) == NULL) {
+		err = -ENOMEM;
+		goto err3;
 	}
 	chain->use++;
 	return 0;
 
+err3:
+	list_del_rcu(&rule->list);
 err2:
 	nf_tables_rule_destroy(&ctx, rule);
 err1:
@@ -2479,13 +2471,12 @@ struct nft_set *nf_tables_set_lookup_byid(const struct net *net,
 	u32 id = ntohl(nla_get_be32(nla));
 
 	list_for_each_entry(trans, &net->nft.commit_list, list) {
-		if (trans->msg_type == NFT_MSG_NEWSET) {
-			struct nft_set *set = nft_trans_set(trans);
+		struct nft_set *set = nft_trans_set(trans);
 
-			if (id == nft_trans_set_id(trans) &&
-			    nft_active_genmask(set, genmask))
-				return set;
-		}
+		if (trans->msg_type == NFT_MSG_NEWSET &&
+		    id == nft_trans_set_id(trans) &&
+		    nft_active_genmask(set, genmask))
+			return set;
 	}
 	return ERR_PTR(-ENOENT);
 }

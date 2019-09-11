@@ -844,8 +844,6 @@ static int ov6650_video_probe(struct i2c_client *client)
 	if (ret < 0)
 		return ret;
 
-	msleep(20);
-
 	/*
 	 * check and show product ID and manufacturer ID
 	 */
@@ -1035,7 +1033,7 @@ static int ov6650_probe(struct i2c_client *client,
 	priv->code	  = MEDIA_BUS_FMT_YUYV8_2X8;
 	priv->colorspace  = V4L2_COLORSPACE_JPEG;
 
-	priv->clk = v4l2_clk_get(&client->dev, NULL);
+	priv->clk = v4l2_clk_get(&client->dev, "mclk");
 	if (IS_ERR(priv->clk)) {
 		ret = PTR_ERR(priv->clk);
 		goto eclkget;

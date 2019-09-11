@@ -525,14 +525,6 @@ static void tun_queue_purge(struct tun_file *tfile)
 	skb_queue_purge(&tfile->sk.sk_error_queue);
 }
 
-static void tun_cleanup_tx_array(struct tun_file *tfile)
-{
-	if (tfile->tx_array.ring.queue) {
-		skb_array_cleanup(&tfile->tx_array);
-		memset(&tfile->tx_array, 0, sizeof(tfile->tx_array));
-	}
-}
-
 static void __tun_detach(struct tun_file *tfile, bool clean)
 {
 	struct tun_file *ntfile;
@@ -574,7 +566,8 @@ static void __tun_detach(struct tun_file *tfile, bool clean)
 			    tun->dev->reg_state == NETREG_REGISTERED)
 				unregister_netdevice(tun->dev);
 		}
-		tun_cleanup_tx_array(tfile);
+		if (tun)
+			skb_array_cleanup(&tfile->tx_array);
 		sock_put(&tfile->sk);
 	}
 }
@@ -613,13 +606,11 @@ static void tun_detach_all(struct net_device *dev)
 		/* Drop read queue */
 		tun_queue_purge(tfile);
 		sock_put(&tfile->sk);
-		tun_cleanup_tx_array(tfile);
 	}
 	list_for_each_entry_safe(tfile, tmp, &tun->disabled, next) {
 		tun_enable_queue(tfile);
 		tun_queue_purge(tfile);
 		sock_put(&tfile->sk);
-		tun_cleanup_tx_array(tfile);
 	}
 	BUG_ON(tun->numdisabled != 0);
 
@@ -1194,6 +1185,9 @@ static ssize_t tun_get_user(struct tun_struct *tun, struct tun_file *tfile,
 	u32 rxhash;
 	ssize_t n;
 
+	if (!(tun->dev->flags & IFF_UP))
+		return -EIO;
+
 	if (!(tun->flags & IFF_NO_PI)) {
 		if (len < sizeof(pi))
 			return -EINVAL;
@@ -1270,11 +1264,9 @@ static ssize_t tun_get_user(struct tun_struct *tun, struct tun_file *tfile,
 		err = skb_copy_datagram_from_iter(skb, 0, from, len);
 
 	if (err) {
-		err = -EFAULT;
-drop:
 		this_cpu_inc(tun->pcpu_stats->rx_dropped);
 		kfree_skb(skb);
-		return err;
+		return -EFAULT;
 	}
 
 	err = virtio_net_hdr_to_skb(skb, &gso, tun_is_little_endian(tun));
@@ -1330,16 +1322,7 @@ drop:
 	skb_probe_transport_header(skb, 0);
 
 	rxhash = skb_get_hash(skb);
-
-	rcu_read_lock();
-	if (unlikely(!(tun->dev->flags & IFF_UP))) {
-		err = -EIO;
-		rcu_read_unlock();
-		goto drop;
-	}
-
 	netif_rx_ni(skb);
-	rcu_read_unlock();
 
 	stats = get_cpu_ptr(tun->pcpu_stats);
 	u64_stats_update_begin(&stats->syncp);
@@ -1483,9 +1466,9 @@ static struct sk_buff *tun_ring_recv(struct tun_file *tfile, int noblock,
 	}
 
 	add_wait_queue(&tfile->wq.wait, &wait);
+	current->state = TASK_INTERRUPTIBLE;
 
 	while (1) {
-		set_current_state(TASK_INTERRUPTIBLE);
 		skb = skb_array_consume(&tfile->tx_array);
 		if (skb)
 			break;
@@ -1501,7 +1484,7 @@ static struct sk_buff *tun_ring_recv(struct tun_file *tfile, int noblock,
 		schedule();
 	}
 
-	__set_current_state(TASK_RUNNING);
+	current->state = TASK_RUNNING;
 	remove_wait_queue(&tfile->wq.wait, &wait);
 
 out:
@@ -1582,9 +1565,7 @@ static void tun_setup(struct net_device *dev)
  */
 static int tun_validate(struct nlattr *tb[], struct nlattr *data[])
 {
-	/* NL_SET_ERR_MSG(extack,
-		       "tun/tap creation via rtnetlink is not supported."); */
-	return -EOPNOTSUPP;
+	return -EINVAL;
 }
 
 static struct rtnl_link_ops tun_link_ops __read_mostly = {
@@ -2391,8 +2372,6 @@ static int tun_chr_open(struct inode *inode, struct file * file)
 	INIT_LIST_HEAD(&tfile->next);
 
 	sock_set_flag(&tfile->sk, SOCK_ZEROCOPY);
-
-	memset(&tfile->tx_array, 0, sizeof(tfile->tx_array));
 
 	return 0;
 }

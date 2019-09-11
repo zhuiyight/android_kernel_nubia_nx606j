@@ -131,10 +131,6 @@ static int _gmu_iommu_fault_handler(struct device *dev,
 		fault_type = "translation";
 	else if (flags & IOMMU_FAULT_PERMISSION)
 		fault_type = "permission";
-	else if (flags & IOMMU_FAULT_EXTERNAL)
-		fault_type = "external";
-	else if (flags & IOMMU_FAULT_TRANSACTION_STALLED)
-		fault_type = "transaction stalled";
 
 	dev_err(dev, "GMU fault addr = %lX, context=%s (%s %s fault)\n",
 			addr, name,
@@ -313,7 +309,7 @@ static struct {
  * @gmu: Pointer to GMU device
  * @node: Pointer to GMU device node
  */
-static int gmu_iommu_init(struct gmu_device *gmu, struct device_node *node)
+int gmu_iommu_init(struct gmu_device *gmu, struct device_node *node)
 {
 	struct device_node *child;
 	struct gmu_iommu_context *ctx = NULL;
@@ -350,7 +346,7 @@ static int gmu_iommu_init(struct gmu_device *gmu, struct device_node *node)
  * from IOMMU context banks.
  * @gmu: Pointer to GMU device
  */
-static void gmu_kmem_close(struct gmu_device *gmu)
+void gmu_kmem_close(struct gmu_device *gmu)
 {
 	int i;
 	struct gmu_memdesc *md = &gmu->fw_image;
@@ -390,7 +386,7 @@ static void gmu_kmem_close(struct gmu_device *gmu)
 	iommu_domain_free(ctx->domain);
 }
 
-static void gmu_memory_close(struct gmu_device *gmu)
+void gmu_memory_close(struct gmu_device *gmu)
 {
 	gmu_kmem_close(gmu);
 	/* Free user memory context */
@@ -404,7 +400,7 @@ static void gmu_memory_close(struct gmu_device *gmu)
  * @gmu: Pointer to GMU device
  * @node: Pointer to GMU device node
  */
-static int gmu_memory_probe(struct gmu_device *gmu, struct device_node *node)
+int gmu_memory_probe(struct gmu_device *gmu, struct device_node *node)
 {
 	int ret;
 
@@ -757,7 +753,7 @@ static int gmu_bus_vote_init(struct gmu_device *gmu, struct kgsl_pwrctrl *pwr)
 	return 0;
 }
 
-static int gmu_rpmh_init(struct gmu_device *gmu, struct kgsl_pwrctrl *pwr)
+int gmu_rpmh_init(struct gmu_device *gmu, struct kgsl_pwrctrl *pwr)
 {
 	struct rpmh_arc_vals gfx_arc, cx_arc, mx_arc;
 	int ret;
@@ -1311,18 +1307,15 @@ static int gmu_disable_gdsc(struct gmu_device *gmu)
 	do {
 		if (!regulator_is_enabled(gmu->cx_gdsc))
 			return 0;
-		usleep_range(10, 100);
+		cond_resched();
 
 	} while (!(time_after(jiffies, t)));
-
-	if (!regulator_is_enabled(gmu->cx_gdsc))
-		return 0;
 
 	dev_err(&gmu->pdev->dev, "GMU CX gdsc off timeout");
 	return -ETIMEDOUT;
 }
 
-int gmu_suspend(struct kgsl_device *device)
+static int gmu_suspend(struct kgsl_device *device)
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 	struct adreno_gpudev *gpudev = ADRENO_GPU_DEVICE(adreno_dev);
@@ -1408,7 +1401,6 @@ int gmu_start(struct kgsl_device *device)
 	struct adreno_gpudev *gpudev = ADRENO_GPU_DEVICE(adreno_dev);
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
 	struct gmu_device *gmu = &device->gmu;
-	unsigned int boot_state = GMU_WARM_BOOT;
 
 	switch (device->state) {
 	case KGSL_STATE_INIT:
@@ -1445,21 +1437,12 @@ int gmu_start(struct kgsl_device *device)
 		gmu_enable_clks(gmu);
 		gmu_irq_enable(device);
 
-		/*
-		 * If unrecovered is set that means last
-		 * wakeup from SLUMBER state failed. Use GMU
-		 * and HFI boot state as COLD as this is a
-		 * boot after RESET.
-		 */
-		if (gmu->unrecovered)
-			boot_state = GMU_COLD_BOOT;
-
 		ret = gpudev->rpmh_gpu_pwrctrl(adreno_dev, GMU_FW_START,
-				boot_state, 0);
+				GMU_WARM_BOOT, 0);
 		if (ret)
 			goto error_gmu;
 
-		ret = hfi_start(gmu, boot_state);
+		ret = hfi_start(gmu, GMU_WARM_BOOT);
 		if (ret)
 			goto error_gmu;
 
@@ -1475,7 +1458,7 @@ int gmu_start(struct kgsl_device *device)
 			gmu_irq_enable(device);
 
 			ret = gpudev->rpmh_gpu_pwrctrl(
-				adreno_dev, GMU_FW_START, GMU_COLD_BOOT, 0);
+				adreno_dev, GMU_FW_START, GMU_RESET, 0);
 			if (ret)
 				goto error_gmu;
 
@@ -1492,7 +1475,7 @@ int gmu_start(struct kgsl_device *device)
 			hfi_stop(gmu);
 
 			ret = gpudev->rpmh_gpu_pwrctrl(adreno_dev, GMU_FW_START,
-					GMU_COLD_BOOT, 0);
+					GMU_RESET, 0);
 			if (ret)
 				goto error_gmu;
 
@@ -1505,8 +1488,6 @@ int gmu_start(struct kgsl_device *device)
 		break;
 	}
 
-	/* Clear unrecovered as GMU start is successful */
-	gmu->unrecovered = false;
 	return ret;
 
 error_gmu:
@@ -1662,7 +1643,7 @@ int adreno_gmu_fenced_write(struct adreno_device *adreno_dev,
 	if (!kgsl_gmu_isenabled(KGSL_DEVICE(adreno_dev)))
 		return 0;
 
-	for (i = 0; i < GMU_LONG_WAKEUP_RETRY_LIMIT; i++) {
+	for (i = 0; i < GMU_WAKEUP_RETRY_MAX; i++) {
 		adreno_read_gmureg(adreno_dev, ADRENO_REG_GMU_AHB_FENCE_STATUS,
 			&status);
 
@@ -1677,19 +1658,9 @@ int adreno_gmu_fenced_write(struct adreno_device *adreno_dev,
 
 		/* Try to write the fenced register again */
 		adreno_writereg(adreno_dev, offset, val);
-
-		if (i == GMU_SHORT_WAKEUP_RETRY_LIMIT)
-			dev_err(adreno_dev->dev.dev,
-				"Waited %d usecs to write fenced register 0x%x. Continuing to wait...\n",
-				(GMU_SHORT_WAKEUP_RETRY_LIMIT *
-				GMU_WAKEUP_DELAY_US),
-				reg_offset);
 	}
 
 	dev_err(adreno_dev->dev.dev,
-		"Timed out waiting %d usecs to write fenced register 0x%x\n",
-		GMU_LONG_WAKEUP_RETRY_LIMIT * GMU_WAKEUP_DELAY_US,
-		reg_offset);
-
+		"GMU fenced register write timed out: reg 0x%x\n", reg_offset);
 	return -ETIMEDOUT;
 }

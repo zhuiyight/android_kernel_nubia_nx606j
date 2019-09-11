@@ -441,10 +441,6 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 	int nb = 0;
 	int count = 1;
 	int rc = NET_XMIT_SUCCESS;
-	int rc_drop = NET_XMIT_DROP;
-
-	/* Do not fool qdisc_drop_all() */
-	skb->prev = NULL;
 
 	/* Random duplication */
 	if (q->duplicate && q->duplicate >= get_crandom(&q->dup_cor))
@@ -466,7 +462,7 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 	/* If a delay is expected, orphan the skb. (orphaning usually takes
 	 * place at TX completion time, so _before_ the link transit delay)
 	 */
-	if (q->latency || q->jitter || q->rate)
+	if (q->latency || q->jitter)
 		skb_orphan_partial(skb);
 
 	/*
@@ -481,7 +477,6 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 		q->duplicate = 0;
 		rootq->enqueue(skb2, rootq, to_free);
 		q->duplicate = dupsave;
-		rc_drop = NET_XMIT_SUCCESS;
 	}
 
 	/*
@@ -494,7 +489,7 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 		if (skb_is_gso(skb)) {
 			segs = netem_segment(skb, sch, to_free);
 			if (!segs)
-				return rc_drop;
+				return NET_XMIT_DROP;
 		} else {
 			segs = skb;
 		}
@@ -517,10 +512,8 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 			1<<(prandom_u32() % 8);
 	}
 
-	if (unlikely(sch->q.qlen >= sch->limit)) {
-		qdisc_drop_all(skb, sch, to_free);
-		return rc_drop;
-	}
+	if (unlikely(sch->q.qlen >= sch->limit))
+		return qdisc_drop(skb, sch, to_free);
 
 	qdisc_qstats_backlog_inc(sch, skb);
 
@@ -537,31 +530,21 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 		now = psched_get_time();
 
 		if (q->rate) {
-			struct netem_skb_cb *last = NULL;
+			struct sk_buff *last;
 
-			if (sch->q.tail)
-				last = netem_skb_cb(sch->q.tail);
-			if (q->t_root.rb_node) {
-				struct sk_buff *t_skb;
-				struct netem_skb_cb *t_last;
-
-				t_skb = netem_rb_to_skb(rb_last(&q->t_root));
-				t_last = netem_skb_cb(t_skb);
-				if (!last ||
-				    t_last->time_to_send > last->time_to_send) {
-					last = t_last;
-				}
-			}
-
+			if (sch->q.qlen)
+				last = sch->q.tail;
+			else
+				last = netem_rb_to_skb(rb_last(&q->t_root));
 			if (last) {
 				/*
 				 * Last packet in queue is reference point (now),
 				 * calculate this time bonus and subtract
 				 * from delay.
 				 */
-				delay -= last->time_to_send - now;
+				delay -= netem_skb_cb(last)->time_to_send - now;
 				delay = max_t(psched_tdiff_t, 0, delay);
-				now = last->time_to_send;
+				now = netem_skb_cb(last)->time_to_send;
 			}
 
 			delay += packet_len_2_sched_time(qdisc_pkt_len(skb), q);
@@ -944,10 +927,10 @@ static int netem_init(struct Qdisc *sch, struct nlattr *opt)
 	struct netem_sched_data *q = qdisc_priv(sch);
 	int ret;
 
-	qdisc_watchdog_init(&q->watchdog, sch);
-
 	if (!opt)
 		return -EINVAL;
+
+	qdisc_watchdog_init(&q->watchdog, sch);
 
 	q->loss_model = CLG_RANDOM;
 	ret = netem_change(sch, opt);

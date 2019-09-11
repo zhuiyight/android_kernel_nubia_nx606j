@@ -23,6 +23,12 @@
 #include <linux/types.h>
 #include <linux/parser.h>
 
+//Nubia FileObserver Begin
+#ifdef ENABLE_FILE_OBSERVER
+#include "observer.h"
+#endif
+//Nubia FileObserver End
+
 enum {
 	Opt_fsuid,
 	Opt_fsgid,
@@ -33,9 +39,6 @@ enum {
 	Opt_userid,
 	Opt_reserved_mb,
 	Opt_gid_derivation,
-	Opt_default_normal,
-	Opt_nocache,
-	Opt_unshared_obb,
 	Opt_err,
 };
 
@@ -48,10 +51,7 @@ static const match_table_t sdcardfs_tokens = {
 	{Opt_userid, "userid=%d"},
 	{Opt_multiuser, "multiuser"},
 	{Opt_gid_derivation, "derive_gid"},
-	{Opt_default_normal, "default_normal"},
-	{Opt_unshared_obb, "unshared_obb"},
 	{Opt_reserved_mb, "reserved_mb=%u"},
-	{Opt_nocache, "nocache"},
 	{Opt_err, NULL}
 };
 
@@ -74,8 +74,6 @@ static int parse_options(struct super_block *sb, char *options, int silent,
 	opts->reserved_mb = 0;
 	/* by default, gid derivation is off */
 	opts->gid_derivation = false;
-	opts->default_normal = false;
-	opts->nocache = false;
 
 	*debug = 0;
 
@@ -130,15 +128,6 @@ static int parse_options(struct super_block *sb, char *options, int silent,
 		case Opt_gid_derivation:
 			opts->gid_derivation = true;
 			break;
-		case Opt_default_normal:
-			opts->default_normal = true;
-			break;
-		case Opt_nocache:
-			opts->nocache = true;
-			break;
-		case Opt_unshared_obb:
-			opts->unshared_obb = true;
-			break;
 		/* unknown option */
 		default:
 			if (!silent)
@@ -192,16 +181,12 @@ int parse_options_remount(struct super_block *sb, char *options, int silent,
 				return 0;
 			vfsopts->mask = option;
 			break;
-		case Opt_unshared_obb:
-		case Opt_default_normal:
 		case Opt_multiuser:
 		case Opt_userid:
 		case Opt_fsuid:
 		case Opt_fsgid:
 		case Opt_reserved_mb:
-		case Opt_gid_derivation:
-			if (!silent)
-				pr_warn("Option \"%s\" can't be changed during remount\n", p);
+			pr_warn("Option \"%s\" can't be changed during remount\n", p);
 			break;
 		/* unknown option */
 		default:
@@ -309,13 +294,6 @@ static int sdcardfs_read_super(struct vfsmount *mnt, struct super_block *sb,
 	atomic_inc(&lower_sb->s_active);
 	sdcardfs_set_lower_super(sb, lower_sb);
 
-	sb->s_stack_depth = lower_sb->s_stack_depth + 1;
-	if (sb->s_stack_depth > FILESYSTEM_MAX_STACK_DEPTH) {
-		pr_err("sdcardfs: maximum fs stacking depth exceeded\n");
-		err = -EINVAL;
-		goto out_sput;
-	}
-
 	/* inherit maxbytes from lower file system */
 	sb->s_maxbytes = lower_sb->s_maxbytes;
 
@@ -337,7 +315,7 @@ static int sdcardfs_read_super(struct vfsmount *mnt, struct super_block *sb,
 	sb->s_root = d_make_root(inode);
 	if (!sb->s_root) {
 		err = -ENOMEM;
-		goto out_sput;
+		goto out_iput;
 	}
 	d_set_d_op(sb->s_root, &sdcardfs_ci_dops);
 
@@ -382,7 +360,8 @@ static int sdcardfs_read_super(struct vfsmount *mnt, struct super_block *sb,
 	/* no longer needed: free_dentry_private_data(sb->s_root); */
 out_freeroot:
 	dput(sb->s_root);
-	sb->s_root = NULL;
+out_iput:
+	iput(inode);
 out_sput:
 	/* drop refs we took earlier */
 	atomic_dec(&lower_sb->s_active);
@@ -442,7 +421,7 @@ void sdcardfs_kill_sb(struct super_block *sb)
 {
 	struct sdcardfs_sb_info *sbi;
 
-	if (sb->s_magic == SDCARDFS_SUPER_MAGIC && sb->s_fs_info) {
+	if (sb->s_magic == SDCARDFS_SUPER_MAGIC) {
 		sbi = SDCARDFS_SB(sb);
 		mutex_lock(&sdcardfs_super_list_lock);
 		list_del(&sbi->list);
@@ -478,6 +457,12 @@ static int __init init_sdcardfs_fs(void)
 	if (err)
 		goto out;
 	err = register_filesystem(&sdcardfs_fs_type);
+
+	//Nubia FileObserver Begin
+	#ifdef ENABLE_FILE_OBSERVER
+	sdcardfs_init_file_observer();
+	#endif
+	//Nubia FileObserver End
 out:
 	if (err) {
 		sdcardfs_destroy_inode_cache();
@@ -489,6 +474,11 @@ out:
 
 static void __exit exit_sdcardfs_fs(void)
 {
+    //Nubia FileObserver Begin
+	#ifdef ENABLE_FILE_OBSERVER
+	sdcardfs_exit_file_observer();
+	#endif
+	//Nubia FileObserver End
 	sdcardfs_destroy_inode_cache();
 	sdcardfs_destroy_dentry_cache();
 	packagelist_exit();

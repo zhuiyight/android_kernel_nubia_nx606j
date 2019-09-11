@@ -108,7 +108,7 @@ static const char *nbdcmd_to_ascii(int cmd)
 
 static int nbd_size_clear(struct nbd_device *nbd, struct block_device *bdev)
 {
-	bd_set_size(bdev, 0);
+	bdev->bd_inode->i_size = 0;
 	set_capacity(nbd->disk, 0);
 	kobject_uevent(&nbd_to_dev(nbd)->kobj, KOBJ_CHANGE);
 
@@ -117,21 +117,29 @@ static int nbd_size_clear(struct nbd_device *nbd, struct block_device *bdev)
 
 static void nbd_size_update(struct nbd_device *nbd, struct block_device *bdev)
 {
-	blk_queue_logical_block_size(nbd->disk->queue, nbd->blksize);
-	blk_queue_physical_block_size(nbd->disk->queue, nbd->blksize);
-	bd_set_size(bdev, nbd->bytesize);
-	set_blocksize(bdev, nbd->blksize);
+	if (!nbd_is_connected(nbd))
+		return;
+
+	bdev->bd_inode->i_size = nbd->bytesize;
 	set_capacity(nbd->disk, nbd->bytesize >> 9);
 	kobject_uevent(&nbd_to_dev(nbd)->kobj, KOBJ_CHANGE);
 }
 
-static void nbd_size_set(struct nbd_device *nbd, struct block_device *bdev,
+static int nbd_size_set(struct nbd_device *nbd, struct block_device *bdev,
 			loff_t blocksize, loff_t nr_blocks)
 {
+	int ret;
+
+	ret = set_blocksize(bdev, blocksize);
+	if (ret)
+		return ret;
+
 	nbd->blksize = blocksize;
 	nbd->bytesize = blocksize * nr_blocks;
-	if (nbd_is_connected(nbd))
-		nbd_size_update(nbd, bdev);
+
+	nbd_size_update(nbd, bdev);
+
+	return 0;
 }
 
 static void nbd_end_request(struct nbd_cmd *cmd)
@@ -261,10 +269,9 @@ static inline int sock_send_bvec(struct nbd_device *nbd, struct bio_vec *bvec,
 static int nbd_send_cmd(struct nbd_device *nbd, struct nbd_cmd *cmd)
 {
 	struct request *req = blk_mq_rq_from_pdu(cmd);
-	int result;
+	int result, flags;
 	struct nbd_request request;
 	unsigned long size = blk_rq_bytes(req);
-	struct bio *bio;
 	u32 type;
 
 	if (req->cmd_type == REQ_TYPE_DRV_PRIV)
@@ -298,19 +305,17 @@ static int nbd_send_cmd(struct nbd_device *nbd, struct nbd_cmd *cmd)
 		return -EIO;
 	}
 
-	if (type != NBD_CMD_WRITE)
-		return 0;
-
-	bio = req->bio;
-	while (bio) {
-		struct bio *next = bio->bi_next;
-		struct bvec_iter iter;
+	if (type == NBD_CMD_WRITE) {
+		struct req_iterator iter;
 		struct bio_vec bvec;
-
-		bio_for_each_segment(bvec, bio, iter) {
-			bool is_last = !next && bio_iter_last(bvec, iter);
-			int flags = is_last ? 0 : MSG_MORE;
-
+		/*
+		 * we are really probing at internals to determine
+		 * whether to set MSG_MORE or not...
+		 */
+		rq_for_each_segment(bvec, req, iter) {
+			flags = 0;
+			if (!rq_iter_last(bvec, iter))
+				flags = MSG_MORE;
 			dev_dbg(nbd_to_dev(nbd), "request %p: sending %d bytes data\n",
 				cmd, bvec.bv_len);
 			result = sock_send_bvec(nbd, &bvec, flags);
@@ -320,16 +325,7 @@ static int nbd_send_cmd(struct nbd_device *nbd, struct nbd_cmd *cmd)
 					result);
 				return -EIO;
 			}
-			/*
-			 * The completion might already have come in,
-			 * so break for the last one instead of letting
-			 * the iterator do it. This prevents use-after-free
-			 * of the bio.
-			 */
-			if (is_last)
-				break;
 		}
-		bio = next;
 	}
 	return 0;
 }
@@ -647,22 +643,18 @@ static int __nbd_ioctl(struct block_device *bdev, struct nbd_device *nbd,
 	case NBD_SET_BLKSIZE: {
 		loff_t bsize = div_s64(nbd->bytesize, arg);
 
-		nbd_size_set(nbd, bdev, arg, bsize);
-		return 0;
+		return nbd_size_set(nbd, bdev, arg, bsize);
 	}
 
 	case NBD_SET_SIZE:
-		nbd_size_set(nbd, bdev, nbd->blksize,
-			     div_s64(arg, nbd->blksize));
-		return 0;
+		return nbd_size_set(nbd, bdev, nbd->blksize,
+					div_s64(arg, nbd->blksize));
+
 	case NBD_SET_SIZE_BLOCKS:
-		nbd_size_set(nbd, bdev, nbd->blksize, arg);
-		return 0;
+		return nbd_size_set(nbd, bdev, nbd->blksize, arg);
+
 	case NBD_SET_TIMEOUT:
-		if (arg) {
-			nbd->tag_set.timeout = arg * HZ;
-			blk_queue_rq_timeout(nbd->disk->queue, arg * HZ);
-		}
+		nbd->tag_set.timeout = arg * HZ;
 		return 0;
 
 	case NBD_SET_FLAGS:

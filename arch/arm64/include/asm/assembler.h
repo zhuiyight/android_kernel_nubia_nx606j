@@ -109,24 +109,6 @@
 	.endm
 
 /*
- * Value prediction barrier
- */
-	.macro	csdb
-	hint	#20
-	.endm
-
-/*
- * Sanitise a 64-bit bounded index wrt speculation, returning zero if out
- * of bounds.
- */
-	.macro	mask_nospec64, idx, limit, tmp
-	sub	\tmp, \idx, \limit
-	bic	\tmp, \tmp, \idx
-	and	\idx, \idx, \tmp, asr #63
-	csdb
-	.endm
-
-/*
  * NOP sequence
  */
 	.macro	nops, num
@@ -266,11 +248,7 @@ lr	.req	x30		// link register
 	 */
 	.macro adr_this_cpu, dst, sym, tmp
 	adr_l	\dst, \sym
-alternative_if_not ARM64_HAS_VIRT_HOST_EXTN
 	mrs	\tmp, tpidr_el1
-alternative_else
-	mrs	\tmp, tpidr_el2
-alternative_endif
 	add	\dst, \dst, \tmp
 	.endm
 
@@ -281,11 +259,7 @@ alternative_endif
 	 */
 	.macro ldr_this_cpu dst, sym, tmp
 	adr_l	\dst, \sym
-alternative_if_not ARM64_HAS_VIRT_HOST_EXTN
 	mrs	\tmp, tpidr_el1
-alternative_else
-	mrs	\tmp, tpidr_el2
-alternative_endif
 	ldr	\dst, [\dst, \tmp]
 	.endm
 
@@ -516,10 +490,6 @@ alternative_endif
 	and		\res, \res, \tmp2
 	.endif
 .Ldone\@:
-	.endm
-
-	.macro	pte_to_phys, phys, pte
-	and	\phys, \pte, #(((1 << (48 - PAGE_SHIFT)) - 1) << PAGE_SHIFT)
 	.endm
 
 #endif	/* __ASM_ASSEMBLER_H */

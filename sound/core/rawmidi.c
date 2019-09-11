@@ -29,7 +29,6 @@
 #include <linux/mutex.h>
 #include <linux/module.h>
 #include <linux/delay.h>
-#include <linux/nospec.h>
 #include <sound/rawmidi.h>
 #include <sound/info.h>
 #include <sound/control.h>
@@ -581,19 +580,19 @@ static int snd_rawmidi_info_user(struct snd_rawmidi_substream *substream,
 	return 0;
 }
 
-static int __snd_rawmidi_info_select(struct snd_card *card,
-				     struct snd_rawmidi_info *info)
+int snd_rawmidi_info_select(struct snd_card *card, struct snd_rawmidi_info *info)
 {
 	struct snd_rawmidi *rmidi;
 	struct snd_rawmidi_str *pstr;
 	struct snd_rawmidi_substream *substream;
 
+	mutex_lock(&register_mutex);
 	rmidi = snd_rawmidi_search(card, info->device);
+	mutex_unlock(&register_mutex);
 	if (!rmidi)
 		return -ENXIO;
 	if (info->stream < 0 || info->stream > 1)
 		return -EINVAL;
-	info->stream = array_index_nospec(info->stream, 2);
 	pstr = &rmidi->streams[info->stream];
 	if (pstr->substream_count == 0)
 		return -ENOENT;
@@ -604,16 +603,6 @@ static int __snd_rawmidi_info_select(struct snd_card *card,
 			return snd_rawmidi_info(substream, info);
 	}
 	return -ENXIO;
-}
-
-int snd_rawmidi_info_select(struct snd_card *card, struct snd_rawmidi_info *info)
-{
-	int ret;
-
-	mutex_lock(&register_mutex);
-	ret = __snd_rawmidi_info_select(card, info);
-	mutex_unlock(&register_mutex);
-	return ret;
 }
 EXPORT_SYMBOL(snd_rawmidi_info_select);
 

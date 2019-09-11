@@ -17,10 +17,9 @@ snd-soc-wcd-cpe-objs := wcd_cpe_services.o wcd_cpe_core.o
 obj-$(CONFIG_SND_SOC_WCD9335) += snd-soc-wcd9335.o
 obj-$(CONFIG_SND_SOC_WCD_CPE)   += snd-soc-wcd-cpe.o
 obj-$(CONFIG_SND_SOC_WCD934X)	+= wcd934x/
-obj-$(CONFIG_SND_SOC_TAS2557)	+= tas2557/
-obj-$(CONFIG_SND_SOC_TAS2559)	+= tas2559/
 obj-$(CONFIG_SND_SOC_SDM660_CDC) += sdm660_cdc/
 obj-$(CONFIG_SND_SOC_MSM_SDW) += msm_sdw/
+obj-$(CONFIG_SND_SOC_TFA9894)  += tfa9894/
 
 obj-$(CONFIG_SND_SOC_WCD9XXX_V2) += snd-soc-wcd9xxx.o
 obj-$(CONFIG_SND_SOC_WCD_MBHC)  += snd-soc-wcd-mbhc.o
@@ -37,6 +36,8 @@ wcd-core-objs                  := wcd9xxx-rst.o wcd9xxx-core-init.o \
 				msm-cdc-pinctrl.o msm-cdc-supply.o
 wcd-core-objs	+= wcd934x/wcd934x-regmap.o
 wcd-core-objs	+= wcd934x/wcd934x-tables.o
+snd-soc-tas2555-generic-objs := tas2555-core.o tas2555-regmap.o tas2555-codec.o tas2555-misc.o tiload.o
 
 obj-$(CONFIG_WCD9XXX_CODEC_CORE) += wcd-core.o
 obj-$(CONFIG_SND_SOC_MSM_HDMI_CODEC_RX) += msm_hdmi_codec_rx.o
+obj-$(CONFIG_SND_SOC_TAS2555_GENERIC) += snd-soc-tas2555-generic.o
