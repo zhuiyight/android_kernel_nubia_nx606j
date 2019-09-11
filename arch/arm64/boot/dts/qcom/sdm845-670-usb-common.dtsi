@@ -81,7 +81,6 @@
 			snps,hird-threshold = /bits/ 8 <0x10>;
 			snps,usb3_lpm_capable;
 			usb-core-id = <0>;
-			maximum-speed = "high-speed";
 		};
 
 		qcom,usbbam@a704000 {
@@ -127,14 +126,11 @@
 
 		qcom,efuse-bit-pos = <25>;
 		qcom,efuse-num-bits = <3>;
-		qcom,tune-efuse-correction = <0x1>;
 		vdd-supply = <&pm8998_l1>;
 		vdda18-supply = <&pm8998_l12>;
 		vdda33-supply = <&pm8998_l24>;
+		qcom,override-bias-ctrl2;
 		qcom,vdd-voltage-level = <0 880000 880000>;
-		pinctrl-names = "atest_usb13_suspend", "atest_usb13_active";
-		pinctrl-0 = <&atest_usb13_suspend>;
-		pinctrl-1 = <&atest_usb13_active>;
 		qcom,qusb-phy-reg-offset =
 			<0x240 /* QUSB2PHY_PORT_TUNE1 */
 			 0x1a0 /* QUSB2PHY_PLL_COMMON_STATUS_ONE */
@@ -144,7 +140,10 @@
 			 0x254 /* QUSB2PHY_TEST1 */
 			 0x198 /* PLL_BIAS_CONTROL_2 */
 			 0x228 /* QUSB2PHY_SQ_CTRL1 */
-			 0x22c>; /* QUSB2PHY_SQ_CTRL2 */
+			 0x22c /* QUSB2PHY_SQ_CTRL2 */
+			 0x27c /* QUSB2PHY_DEBUG_CTRL1 */
+			 0x280 /* QUSB2PHY_DEBUG_CTRL2 */
+			 0x2a0>; /* QUSB2PHY_STAT5 */
 
 		qcom,qusb-phy-init-seq =
 			/* <value reg_offset> */
@@ -407,6 +406,7 @@
 			snps,hird-threshold = /bits/ 8 <0x10>;
 			snps,usb3_lpm_capable;
 			usb-core-id = <1>;
+			dr_mode = "host";
 		};
 	};
 
@@ -421,6 +421,7 @@
 		vdd-supply = <&pm8998_l1>;
 		vdda18-supply = <&pm8998_l12>;
 		vdda33-supply = <&pm8998_l24>;
+		qcom,override-bias-ctrl2;
 		qcom,vdd-voltage-level = <0 880000 880000>;
 		qcom,qusb-phy-reg-offset =
 			<0x240 /* QUSB2PHY_PORT_TUNE1 */
@@ -431,7 +432,10 @@
 			 0x254 /* QUSB2PHY_TEST1 */
 			 0x198 /* PLL_BIAS_CONTROL_2 */
 			 0x228 /* QUSB2PHY_SQ_CTRL1 */
-			 0x22c>; /* QUSB2PHY_SQ_CTRL2 */
+			 0x22c /* QUSB2PHY_SQ_CTRL2 */
+			 0x27c /* QUSB2PHY_DEBUG_CTRL1 */
+			 0x280 /* QUSB2PHY_DEBUG_CTRL2 */
+			 0x2a0>; /* QUSB2PHY_STAT5 */
 
 		qcom,qusb-phy-init-seq =
 			/* <value reg_offset> */
