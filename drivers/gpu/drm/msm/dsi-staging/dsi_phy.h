@@ -218,6 +218,15 @@ int dsi_phy_clk_cb_register(struct msm_dsi_phy *phy,
 int dsi_phy_idle_ctrl(struct msm_dsi_phy *phy, bool enable);
 
 /**
+ * dsi_phy_set_clamp_state() - configure clamps for DSI lanes
+ * @phy:        DSI PHY handle.
+ * @enable:     boolean to specify clamp enable/disable.
+ *
+ * Return: error code.
+ */
+int dsi_phy_set_clamp_state(struct msm_dsi_phy *phy, bool enable);
+
+/**
  * dsi_phy_set_clk_freq() - set DSI PHY clock frequency setting
  * @phy:          DSI PHY handle
  * @clk_freq:     link clock frequency
@@ -268,5 +277,15 @@ void dsi_phy_drv_register(void);
  * dsi_phy_drv_unregister() - unregister platform driver
  */
 void dsi_phy_drv_unregister(void);
+
+/**
+ * dsi_phy_update_phy_timings() - Update dsi phy timings
+ * @phy:	DSI PHY handle
+ * @config:	DSI Host config parameters
+ *
+ * Return: error code.
+ */
+int dsi_phy_update_phy_timings(struct msm_dsi_phy *phy,
+			       struct dsi_host_config *config);
 
 #endif /* _DSI_PHY_H_ */

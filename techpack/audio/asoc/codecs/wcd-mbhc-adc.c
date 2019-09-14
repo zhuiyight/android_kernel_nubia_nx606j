@@ -9,7 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
-#define DEBUG
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
@@ -31,7 +30,7 @@
 #include "wcd-mbhc-adc.h"
 #include "wcd-mbhc-v2.h"
 
-#define WCD_MBHC_ADC_HS_THRESHOLD_MV    1700
+#define WCD_MBHC_ADC_HS_THRESHOLD_MV    1800
 #define WCD_MBHC_ADC_HPH_THRESHOLD_MV   75
 #define WCD_MBHC_ADC_MICBIAS_MV         2700
 #define WCD_MBHC_FAKE_INS_RETRY         4
@@ -649,12 +648,6 @@ static void wcd_correct_swch_plug(struct work_struct *work)
 		plug_type = MBHC_PLUG_TYPE_GND_MIC_SWAP;
 		pr_debug("%s: cross connection found, Plug type %d\n",
 			 __func__, plug_type);
-	    if (mbhc->mbhc_cfg->msm_swap_set &&
-			mbhc->mbhc_cfg->msm_swap_set(codec,1,1)) {
-			pr_debug("%s: msm_swap_set to (1,1)\n", __func__);
-		}
-		pr_debug("%s: Plug found, plug type is %d\n",
-			 __func__, plug_type);
 		goto correct_plug_type;
 	}
 	/* Find plug type */
@@ -777,19 +770,13 @@ correct_plug_type:
 				 * if switch is toggled, check again,
 				 * otherwise report unsupported plug
 				 */
-				if (mbhc->mbhc_cfg->msm_swap_set &&
-					mbhc->mbhc_cfg->msm_swap_set(codec,1,1)) {
-					pr_debug("%s: msm_swap_set to (1,1)\n", __func__);
-					continue;
-				} 		
-				
-				/*if (mbhc->mbhc_cfg->swap_gnd_mic &&
+				if (mbhc->mbhc_cfg->swap_gnd_mic &&
 					mbhc->mbhc_cfg->swap_gnd_mic(codec,
 					true)) {
 					pr_debug("%s: US_EU gpio present,flip switch\n"
 						, __func__);
 					continue;
-				}*/
+				}
 			}
 		}
 
@@ -890,6 +877,8 @@ enable_supply:
 	if (mbhc->mbhc_cb->mbhc_micbias_control)
 		wcd_mbhc_adc_update_fsm_source(mbhc, plug_type);
 exit:
+	if (plug_type == MBHC_PLUG_TYPE_HEADSET)
+		mbhc->micbias_enable = true;
 	if (mbhc->mbhc_cb->mbhc_micbias_control &&
 	    !mbhc->micbias_enable)
 		mbhc->mbhc_cb->mbhc_micbias_control(codec, MIC_BIAS_2,
@@ -958,8 +947,11 @@ static irqreturn_t wcd_mbhc_adc_hs_rem_irq(int irq, void *data)
 
 	timeout = jiffies +
 		  msecs_to_jiffies(WCD_FAKE_REMOVAL_MIN_PERIOD_MS);
-	adc_threshold = wcd_mbhc_adc_get_hs_thres(mbhc);
 
+/* liuhaituo@MM.Audio 2018/6/8 modify adc_threshold is consistent with OMR1 */
+	adc_threshold = ((WCD_MBHC_ADC_HS_THRESHOLD_MV *
+				wcd_mbhc_get_micbias(mbhc)) /
+				WCD_MBHC_ADC_MICBIAS_MV);
 	do {
 		retry++;
 		/*
@@ -967,6 +959,10 @@ static irqreturn_t wcd_mbhc_adc_hs_rem_irq(int irq, void *data)
 		 * any change in IN2_P
 		 */
 		usleep_range(10000, 10100);
+		/* liuhaituo@MM.Audio 2018/6/8 modify adc_threshold is consistent with OMR1 */
+		adc_threshold = ((WCD_MBHC_ADC_HS_THRESHOLD_MV *
+					wcd_mbhc_get_micbias(mbhc)) /
+					WCD_MBHC_ADC_MICBIAS_MV);
 		output_mv = wcd_measure_adc_once(mbhc, MUX_CTL_IN2P);
 
 		pr_debug("%s: Check for fake removal: output_mv %d\n",

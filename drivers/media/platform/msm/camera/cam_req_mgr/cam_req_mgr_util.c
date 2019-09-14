@@ -220,7 +220,7 @@ void *cam_get_device_priv(int32_t dev_hdl)
 
 	type = CAM_REQ_MGR_GET_HDL_TYPE(dev_hdl);
 	if (HDL_TYPE_DEV != type && HDL_TYPE_SESSION != type) {
-		//CAM_ERR_RATE_LIMIT(CAM_CRM, "Invalid type"); // ZTEMT: fuyipeng delete log
+		CAM_ERR_RATE_LIMIT(CAM_CRM, "Invalid type");
 		goto device_priv_fail;
 	}
 

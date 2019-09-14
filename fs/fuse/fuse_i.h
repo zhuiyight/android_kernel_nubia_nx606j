@@ -103,9 +103,6 @@ struct fuse_inode {
 	/** Miscellaneous bits describing inode state */
 	unsigned long state;
 
-       //Nubia FileObserver Begin
-        __u32 mask;
-        //Nubia FileObserver End
 	/** Lock for serializing lookup and readdir for back compatibility*/
 	struct mutex mutex;
 };
@@ -121,14 +118,6 @@ enum {
 };
 
 struct fuse_conn;
-
-
-//Nubia FileObserver Begin
-struct fuse_file_creator {
-    uid_t uid;
-    pid_t pid;
-};
-//Nubia FileObserver End
 
 /** FUSE specific file data */
 struct fuse_file {
@@ -168,11 +157,6 @@ struct fuse_file {
 	/* the read write file */
 	struct file *passthrough_filp;
 	bool passthrough_enabled;
-
-        //Nubia FileObserver Begin
-        struct fuse_file_creator creator;
-        __u32 mask;
-        //Nubia FileObserver End
 };
 
 /** One input argument of a request */

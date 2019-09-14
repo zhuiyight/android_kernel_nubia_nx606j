@@ -51,6 +51,11 @@ enum dsi_backlight_type {
 	DSI_BACKLIGHT_MAX,
 };
 
+enum bl_update_flag {
+	BL_UPDATE_DELAY_UNTIL_FIRST_FRAME,
+	BL_UPDATE_NONE,
+};
+
 enum {
 	MODE_GPIO_NOT_VALID = 0,
 	MODE_SEL_DUAL_PORT,
@@ -85,6 +90,7 @@ struct dsi_panel_phy_props {
 
 struct dsi_backlight_config {
 	enum dsi_backlight_type type;
+	enum bl_update_flag bl_update;
 
 	u32 bl_min_level;
 	u32 bl_max_level;
@@ -92,9 +98,7 @@ struct dsi_backlight_config {
 	u32 bl_level;
 	u32 bl_scale;
 	u32 bl_scale_ad;
-#ifdef CONFIG_NUBIA_LCD_BACKLIGHT_CURVE
-        uint32_t backlight_curve[256];
-#endif
+	bool bl_high2bit;
 
 	int en_gpio;
 	/* PWM params */
@@ -113,28 +117,11 @@ struct dsi_reset_seq {
 	u32 sleep_ms;
 };
 
-
-struct dsi_switch_panel_config {
-	
-	int sub_lcd_reset_gpio;
-	int lcd_switch_en_gpio;
-	int lcd_switch_gpio;
-	int sub_lcd_power_1p8_gpio;
-	int sub_tp_reset_gpio;
-};
-
-
-
-
 struct dsi_panel_reset_config {
 	struct dsi_reset_seq *sequence;
 	u32 count;
 
 	int reset_gpio;
-#ifdef CONFIG_NUBIA_SWITCH_LCD
-	int sub_tp_reset_gpio;
-	int sub_lcd_reset_gpio;
-#endif
 	int disp_en_gpio;
 	int lcd_mode_sel_gpio;
 	u32 mode_sel_state;
@@ -149,6 +136,7 @@ enum esd_check_status_mode {
 
 struct drm_panel_esd_config {
 	bool esd_enabled;
+	bool cmd_channel;
 
 	enum esd_check_status_mode status_mode;
 	struct dsi_panel_cmd_set status_cmd;
@@ -160,8 +148,24 @@ struct drm_panel_esd_config {
 	u32 groups;
 };
 
+enum dsi_panel_type {
+	DSI_PANEL = 0,
+	EXT_BRIDGE,
+	DSI_PANEL_TYPE_MAX,
+};
+
+enum dsi_panel_display_mode {
+	DISPLAY_MODE_DEFAULT,
+	DISPLAY_MODE_SRGB,
+	DISPLAY_MODE_DCI_P3,
+	DISPLAY_MODE_NIGHT,
+	DISPLAY_MODE_ONEPLUS,
+	DISPLAY_MODE_ADAPTION
+};
+
 struct dsi_panel {
 	const char *name;
+	enum dsi_panel_type type;
 	struct device_node *panel_of_node;
 	struct mipi_dsi_device mipi_device;
 
@@ -182,15 +186,23 @@ struct dsi_panel {
 	u32 num_timing_nodes;
 
 	struct dsi_regulator_info power_info;
-#ifdef CONFIG_NUBIA_SWITCH_LCD
-	struct dsi_regulator_info sub_panel_power_info;
-#endif
 	struct dsi_backlight_config bl_config;
-	struct dsi_switch_panel_config switch_config;
 	struct dsi_panel_reset_config reset_config;
 	struct dsi_pinctrl_info pinctrl;
 	struct drm_panel_hdr_properties hdr_props;
 	struct drm_panel_esd_config esd_config;
+
+	int hbm_mode;
+	enum dsi_panel_display_mode display_mode;
+
+	int aod_mode;
+	int aod_status;
+	int aod_curr_mode;
+	int aod_disable;
+	int hbm_backlight;
+	bool is_hbm_enabled;
+	int  op_force_screenfp;
+	bool dim_status;
 
 	bool lp11_init;
 	bool ulps_enabled;
@@ -229,7 +241,8 @@ static inline void dsi_panel_release_panel_lock(struct dsi_panel *panel)
 
 struct dsi_panel *dsi_panel_get(struct device *parent,
 				struct device_node *of_node,
-				int topology_override);
+				int topology_override,
+				enum dsi_panel_type type);
 
 int dsi_panel_trigger_esd_attack(struct dsi_panel *panel);
 
@@ -283,6 +296,10 @@ int dsi_panel_unprepare(struct dsi_panel *panel);
 
 int dsi_panel_post_unprepare(struct dsi_panel *panel);
 
+int dsi_panel_apply_hbm_mode(struct dsi_panel *panel);
+
+int dsi_panel_apply_display_mode(struct dsi_panel *panel);
+
 int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl);
 
 int dsi_panel_update_pps(struct dsi_panel *panel);
@@ -295,11 +312,19 @@ int dsi_panel_switch(struct dsi_panel *panel);
 int dsi_panel_post_switch(struct dsi_panel *panel);
 
 void dsi_dsc_pclk_param_calc(struct msm_display_dsc_info *dsc, int intf_width);
-#ifdef CONFIG_NUBIA_LCD_DISP_PREFERENCE
-int nubia_dsi_panel_cabc(struct dsi_panel *panel, uint32_t cabc_modes);
-#endif
+
+struct dsi_panel *dsi_panel_ext_bridge_get(struct device *parent,
+				struct device_node *of_node,
+				int topology_override);
 
 int dsi_panel_parse_esd_reg_read_configs(struct dsi_panel *panel,
 				struct device_node *of_node);
+
+void dsi_panel_ext_bridge_put(struct dsi_panel *panel);
+
+int dsi_panel_set_hbm_mode(struct dsi_panel *panel, int level);
+int dsi_panel_op_set_hbm_mode(struct dsi_panel *panel, int level);
+
+int dsi_panel_set_aod_mode(struct dsi_panel *panel, int level);
 
 #endif /* _DSI_PANEL_H_ */

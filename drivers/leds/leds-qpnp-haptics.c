@@ -1,4 +1,5 @@
-/* Copyright (c) 2014-2015, 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2015, 2017-2018, The Linux Foundation.
+ * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -10,7 +11,7 @@
  * GNU General Public License for more details.
  */
 
-#define pr_fmt(fmt)	"[haptics]%s: " fmt, __func__
+#define pr_fmt(fmt)	"haptics: %s: " fmt, __func__
 
 #include <linux/atomic.h>
 #include <linux/delay.h>
@@ -24,23 +25,10 @@
 #include <linux/platform_device.h>
 #include <linux/pwm.h>
 #include <linux/regmap.h>
+#include <linux/regulator/consumer.h>
 #include <linux/slab.h>
 #include <linux/qpnp/qpnp-misc.h>
 #include <linux/qpnp/qpnp-revid.h>
-
-#define DEBUG_HAPTIC
-#define QPNP_HAPTIC_MIN_START_TIME  100
-//#define CONFIG_FEATURE_ZTEMT_HAPTIC_VIBRATOR
-#ifdef DEBUG_HAPTIC
-#define hap_info(fmt, args...)  pr_info("%d "  fmt,__LINE__, ##args)
-#define hap_err(fmt, args...)  pr_err("%d "  fmt,__LINE__, ##args)
-#define hap_wan(fmt, args...)  pr_warn("%d "  fmt,__LINE__, ##args)
-#else
-#define hap_info(fmt, args...)
-#define hap_err(fmt, args...)
-#define hap_wan(fmt, args...)
-
-#endif
 
 /* Register definitions */
 #define HAP_STATUS_1_REG(chip)		(chip->base + 0x0A)
@@ -334,6 +322,7 @@ struct hap_chip {
 	int				sc_irq;
 	struct pwm_param		pwm_data;
 	struct hap_lra_ares_param	ares_cfg;
+	struct regulator		*vcc_pon;
 	u32				play_time_ms;
 	u32				max_play_time_ms;
 	u32				vmax_mv;
@@ -367,9 +356,7 @@ struct hap_chip {
 	bool				lra_auto_mode;
 	bool				play_irq_en;
 	bool				auto_res_err_recovery_hw;
-#ifdef CONFIG_FEATURE_ZTEMT_HAPTIC_VIBRATOR
-	u32				ztemt_vibrator_ms;
-#endif
+	bool				vcc_pon_enabled;
 };
 
 static int qpnp_haptics_parse_buffer_dt(struct hap_chip *chip);
@@ -484,7 +471,8 @@ static int qpnp_haptics_auto_res_enable(struct hap_chip *chip, bool enable)
 {
 	int rc = 0;
 	u32 delay_us = HAPTICS_BACK_EMF_DELAY_US;
-	u8 val, auto_res_mode_qwd;
+	u8 val;
+	bool auto_res_mode_qwd;
 
 	if (chip->act_type != HAP_LRA)
 		return 0;
@@ -498,7 +486,7 @@ static int qpnp_haptics_auto_res_enable(struct hap_chip *chip, bool enable)
 
 	/*
 	 * Do not enable auto resonance if auto mode is enabled and auto
-	 * resonance mode is QWD, meaning short pattern.
+	 * resonance mode is QWD, meaning long pattern.
 	 */
 	if (chip->lra_auto_mode && auto_res_mode_qwd && enable) {
 		pr_debug("auto_mode enabled, not enabling auto_res\n");
@@ -751,11 +739,10 @@ static int qpnp_haptics_play(struct hap_chip *chip, bool enable)
 			goto out;
 		}
 
-		if (chip->play_mode != HAP_BUFFER)
-			hrtimer_start(&chip->stop_timer,
-				ktime_set(time_ms / MSEC_PER_SEC,
-				(time_ms % MSEC_PER_SEC) * NSEC_PER_MSEC),
-				HRTIMER_MODE_REL);
+		hrtimer_start(&chip->stop_timer,
+			ktime_set(time_ms / MSEC_PER_SEC,
+			(time_ms % MSEC_PER_SEC) * NSEC_PER_MSEC),
+			HRTIMER_MODE_REL);
 
 		rc = qpnp_haptics_auto_res_enable(chip, true);
 		if (rc < 0) {
@@ -782,13 +769,6 @@ static int qpnp_haptics_play(struct hap_chip *chip, bool enable)
 
 		if (chip->play_mode == HAP_PWM)
 			pwm_disable(chip->pwm_data.pwm_dev);
-
-
-		rc = qpnp_haptics_mod_enable(chip, false);
-		if (rc < 0) {
-			pr_err("Error in disabling module, rc=%d\n", rc);
-			goto out;
-		}
 	}
 
 out:
@@ -805,10 +785,29 @@ static void qpnp_haptics_work(struct work_struct *work)
 
 	enable = atomic_read(&chip->state);
 	pr_debug("state: %d\n", enable);
+
+	if (chip->vcc_pon && enable && !chip->vcc_pon_enabled) {
+		rc = regulator_enable(chip->vcc_pon);
+		if (rc < 0)
+			pr_err("%s: could not enable vcc_pon regulator rc=%d\n",
+				 __func__, rc);
+		else
+			chip->vcc_pon_enabled = true;
+	}
+
 	rc = qpnp_haptics_play(chip, enable);
 	if (rc < 0)
 		pr_err("Error in %sing haptics, rc=%d\n",
 			enable ? "play" : "stopp", rc);
+
+	if (chip->vcc_pon && !enable && chip->vcc_pon_enabled) {
+		rc = regulator_disable(chip->vcc_pon);
+		if (rc)
+			pr_err("%s: could not disable vcc_pon regulator rc=%d\n",
+				 __func__, rc);
+		else
+			chip->vcc_pon_enabled = false;
+	}
 }
 
 static enum hrtimer_restart hap_stop_timer(struct hrtimer *timer)
@@ -1070,15 +1069,6 @@ static int qpnp_haptics_play_mode_config(struct hap_chip *chip)
 	val = chip->play_mode << HAP_WF_SOURCE_SHIFT;
 	rc = qpnp_haptics_masked_write_reg(chip, HAP_SEL_REG(chip),
 			HAP_WF_SOURCE_MASK, val);
-	if (!rc) {
-		if (chip->play_mode == HAP_BUFFER && !chip->play_irq_en) {
-			enable_irq(chip->play_irq);
-			chip->play_irq_en = true;
-		} else if (chip->play_mode != HAP_BUFFER && chip->play_irq_en) {
-			disable_irq(chip->play_irq);
-			chip->play_irq_en = false;
-		}
-	}
 	return rc;
 }
 
@@ -1203,10 +1193,14 @@ static int qpnp_haptics_auto_mode_config(struct hap_chip *chip, int time_ms)
 	old_play_mode = chip->play_mode;
 	pr_debug("auto_mode, time_ms: %d\n", time_ms);
 	if (time_ms <= 20) {
-		wave_samp[0] = HAP_WF_SAMP_MAX;
-		wave_samp[1] = HAP_WF_SAMP_MAX;
-		if (time_ms > 15)
-			wave_samp[2] = HAP_WF_SAMP_MAX;
+		wave_samp[0] = 0x7e;
+		wave_samp[1] = 0x7e;
+		wave_samp[2] = 0x7e;
+		wave_samp[3] = 0x7e;
+		wave_samp[4] = 0x7e;
+		wave_samp[5] = 0x28;
+		wave_samp[6] = 0x28;
+		wave_samp[7] = 0x28;
 
 		/* short pattern */
 		rc = qpnp_haptics_parse_buffer_dt(chip);
@@ -1219,7 +1213,7 @@ static int qpnp_haptics_auto_mode_config(struct hap_chip *chip, int time_ms)
 				return rc;
 			}
 
-			rc = qpnp_haptics_buffer_config(chip, wave_samp, true);
+			rc = qpnp_haptics_buffer_config(chip, wave_samp, false);
 			if (rc < 0) {
 				pr_err("Error in configuring buffer mode %d\n",
 					rc);
@@ -1239,11 +1233,18 @@ static int qpnp_haptics_auto_mode_config(struct hap_chip *chip, int time_ms)
 			ares_cfg.calibrate_at_eop = -EINVAL;
 		}
 
-		vmax_mv = HAP_VMAX_MAX_MV;
+		if (chip->vmax_mv >= 2320)
+			vmax_mv = HAP_VMAX_MAX_MV;
+		else
+			vmax_mv = chip->vmax_mv;
 		rc = qpnp_haptics_vmax_config(chip, vmax_mv, true);
 		if (rc < 0)
 			return rc;
 
+		brake_pat[0] = 0x3;
+		brake_pat[1] = 0x3;
+		brake_pat[2] = 0x3;
+		brake_pat[3] = 0x3;
 		rc = qpnp_haptics_brake_config(chip, brake_pat);
 		if (rc < 0)
 			return rc;
@@ -1255,8 +1256,33 @@ static int qpnp_haptics_auto_mode_config(struct hap_chip *chip, int time_ms)
 		}
 
 		chip->play_mode = HAP_BUFFER;
-		chip->wave_shape = HAP_WAVE_SQUARE;
+		chip->wave_shape = HAP_WAVE_SINE;
 	} else {
+		wave_samp[0] = 0x28;
+		wave_samp[1] = 0x28;
+		wave_samp[2] = 0x28;
+		wave_samp[3] = 0x28;
+		wave_samp[4] = 0x28;
+		wave_samp[5] = 0x28;
+		wave_samp[6] = 0x28;
+		wave_samp[7] = 0x28;
+		rc = qpnp_haptics_parse_buffer_dt(chip);
+		if (!rc) {
+			rc = qpnp_haptics_wave_rep_config(chip,
+				HAP_WAVE_REPEAT | HAP_WAVE_SAMP_REPEAT);
+			if (rc < 0) {
+				pr_err("Error in configuring wave_rep config %d\n",
+					rc);
+				return rc;
+			}
+
+			rc = qpnp_haptics_buffer_config(chip, wave_samp, false);
+			if (rc < 0) {
+				pr_err("Error in configuring buffer mode %d\n",
+					rc);
+				return rc;
+			}
+		}
 		/* long pattern */
 		ares_cfg.lra_high_z = HAP_LRA_HIGH_Z_OPT1;
 		if (chip->revid->pmic_subtype == PM660_SUBTYPE) {
@@ -1278,6 +1304,9 @@ static int qpnp_haptics_auto_mode_config(struct hap_chip *chip, int time_ms)
 			return rc;
 
 		brake_pat[0] = 0x3;
+		brake_pat[1] = 0x3;
+		brake_pat[2] = 0x3;
+		brake_pat[3] = 0x3;
 		rc = qpnp_haptics_brake_config(chip, brake_pat);
 		if (rc < 0)
 			return rc;
@@ -1288,7 +1317,7 @@ static int qpnp_haptics_auto_mode_config(struct hap_chip *chip, int time_ms)
 			chip->play_irq_en = false;
 		}
 
-		chip->play_mode = HAP_DIRECT;
+		chip->play_mode = HAP_BUFFER;
 		chip->wave_shape = HAP_WAVE_SINE;
 	}
 
@@ -1458,8 +1487,7 @@ static ssize_t qpnp_haptics_show_duration(struct device *dev,
 		time_us = ktime_to_us(time_rem);
 	}
 
-	return snprintf(buf, PAGE_SIZE, "%lld\n", time_us / 1000);
-	return 0;
+	return snprintf(buf, PAGE_SIZE, "%lld\n", div_s64(time_us, 1000));
 }
 
 static ssize_t qpnp_haptics_store_duration(struct device *dev,
@@ -1475,19 +1503,11 @@ static ssize_t qpnp_haptics_store_duration(struct device *dev,
 		return rc;
 
 	/* setting 0 on duration is NOP for now */
-	if (val < 0)
+	if (val <= 0)
 		return count;
-#ifdef CONFIG_FEATURE_ZTEMT_HAPTIC_VIBRATOR
-	if(0 != val)
-	{
-		val = val +chip->ztemt_vibrator_ms;
-	}
-#endif
+
 	if (val > chip->max_play_time_ms)
-	{
-		//return -EINVAL;
-		val = chip->max_play_time_ms;
-	}
+		return -EINVAL;
 
 	mutex_lock(&chip->param_lock);
 	rc = qpnp_haptics_auto_mode_config(chip, val);
@@ -1949,6 +1969,7 @@ static int qpnp_haptics_config(struct hap_chip *chip)
 			return rc;
 		}
 
+		chip->play_irq_en = true;
 		/* use play_irq only for buffer mode */
 		if (chip->play_mode != HAP_BUFFER) {
 			disable_irq(chip->play_irq);
@@ -2077,6 +2098,7 @@ static int qpnp_haptics_parse_dt(struct hap_chip *chip)
 	struct device_node *revid_node, *misc_node;
 	const char *temp_str;
 	int rc, temp;
+	struct regulator *vcc_pon;
 
 	rc = of_property_read_u32(node, "reg", &temp);
 	if (rc < 0) {
@@ -2145,17 +2167,7 @@ static int qpnp_haptics_parse_dt(struct hap_chip *chip)
 		pr_err("Unable to get sc irq\n");
 		return chip->sc_irq;
 	}
-#ifdef CONFIG_FEATURE_ZTEMT_HAPTIC_VIBRATOR
-	chip->ztemt_vibrator_ms = 0;
-	rc = of_property_read_u32(node,"qcom,ztemt_vibrator_ms",&temp);
-	if (!rc) {
-		chip->ztemt_vibrator_ms = temp;
-	} else if (rc != -EINVAL) {
-		pr_err( "Unable to read ztemt_vibrator_ms\n");
-		return rc;
-	}
-	hap_info("nubia ztemt_vibrator_ms:%d\n",temp);
-#endif
+
 	chip->act_type = HAP_LRA;
 	rc = of_property_read_u32(node, "qcom,actuator-type", &temp);
 	if (!rc) {
@@ -2414,6 +2426,16 @@ static int qpnp_haptics_parse_dt(struct hap_chip *chip)
 	else if (chip->play_mode == HAP_PWM)
 		rc = qpnp_haptics_parse_pwm_dt(chip);
 
+	if (of_find_property(node, "vcc_pon-supply", NULL)) {
+		vcc_pon = regulator_get(&chip->pdev->dev, "vcc_pon");
+		if (IS_ERR(vcc_pon)) {
+			rc = PTR_ERR(vcc_pon);
+			dev_err(&chip->pdev->dev,
+				"regulator get failed vcc_pon rc=%d\n", rc);
+		}
+		chip->vcc_pon = vcc_pon;
+	}
+
 	return rc;
 }
 
@@ -2515,6 +2537,16 @@ static int qpnp_haptics_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static void qpnp_haptics_shutdown(struct platform_device *pdev)
+{
+	struct hap_chip *chip = dev_get_drvdata(&pdev->dev);
+
+	cancel_work_sync(&chip->haptics_work);
+
+	/* disable haptics */
+	qpnp_haptics_mod_enable(chip, false);
+}
+
 static const struct dev_pm_ops qpnp_haptics_pm_ops = {
 	.suspend	= qpnp_haptics_suspend,
 };
@@ -2532,6 +2564,7 @@ static struct platform_driver qpnp_haptics_driver = {
 	},
 	.probe		= qpnp_haptics_probe,
 	.remove		= qpnp_haptics_remove,
+	.shutdown	= qpnp_haptics_shutdown,
 };
 module_platform_driver(qpnp_haptics_driver);
 

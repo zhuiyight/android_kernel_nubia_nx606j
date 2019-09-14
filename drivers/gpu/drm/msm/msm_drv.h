@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
  *
@@ -98,6 +98,7 @@ enum msm_mdp_plane_property {
 
 	/* range properties */
 	PLANE_PROP_ZPOS = PLANE_PROP_BLOBCOUNT,
+	PLANE_PROP_CUSTOM,
 	PLANE_PROP_ALPHA,
 	PLANE_PROP_COLOR_FILL,
 	PLANE_PROP_H_DECIMATE,
@@ -155,6 +156,11 @@ enum msm_mdp_crtc_property {
 	CRTC_PROP_SECURITY_LEVEL,
 	CRTC_PROP_IDLE_TIMEOUT,
 	CRTC_PROP_DEST_SCALER,
+	CRTC_PROP_CAPTURE_OUTPUT,
+
+	CRTC_PROP_ENABLE_SUI_ENHANCEMENT,
+	CRTC_PROP_IDLE_PC_STATE,
+	CRTC_PROP_CUSTOM,
 
 	/* total # of properties */
 	CRTC_PROP_COUNT
@@ -190,14 +196,10 @@ enum msm_mdp_conn_property {
 	CONNECTOR_PROP_LP,
 	CONNECTOR_PROP_FB_TRANSLATION_MODE,
 
+	CONNECTOR_PROP_CUSTOM,
+
 	/* total # of properties */
 	CONNECTOR_PROP_COUNT
-};
-
-struct msm_vblank_ctrl {
-	struct kthread_work work;
-	struct list_head event_list;
-	spinlock_t lock;
 };
 
 #define MAX_H_TILES_PER_DISPLAY 2
@@ -578,6 +580,9 @@ struct msm_drm_private {
 	struct msm_drm_thread disp_thread[MAX_CRTCS];
 	struct msm_drm_thread event_thread[MAX_CRTCS];
 
+	struct task_struct *pp_event_thread;
+	struct kthread_worker pp_event_worker;
+
 	unsigned int num_encoders;
 	struct drm_encoder *encoders[MAX_ENCODERS];
 
@@ -608,8 +613,6 @@ struct msm_drm_private {
 	struct notifier_block vmap_notifier;
 	struct shrinker shrinker;
 
-	struct msm_vblank_ctrl vblank_ctrl;
-
 	/* task holding struct_mutex.. currently only used in submit path
 	 * to detect and reject faults from copy_from_user() for submit
 	 * ioctl.
@@ -627,6 +630,9 @@ struct msm_drm_private {
 
 	/* update the flag when msm driver receives shutdown notification */
 	bool shutdown_in_progress;
+
+	/* commit end time */
+	ktime_t commit_end_time;
 };
 
 /* get struct msm_kms * from drm_device * */

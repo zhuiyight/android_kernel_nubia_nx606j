@@ -25,6 +25,14 @@ enum {
 	MSM_DRM_BLANK_UNBLANK,
 	/* panel: power off */
 	MSM_DRM_BLANK_POWERDOWN,
+	/* panel: power on for tp*/
+	MSM_DRM_BLANK_UNBLANK_CUST,
+	/* panel: lcd doze mode */
+	MSM_DRM_BLANK_NORMAL,
+	/* panel: power off */
+	MSM_DRM_BLANK_POWERDOWN_CUST,
+	/* panel: fingerprit on display */
+	MSM_DRM_ONSCREENFINGERPRINT_EVENT,
 };
 
 enum msm_drm_display_id {
@@ -40,40 +48,6 @@ struct msm_drm_notifier {
 	void *data;
 };
 
-#ifdef CONFIG_NUBIA_SWITCH_LCD
-/* A hardware display blank change occurred */
-#define MSM_DRM_SWITCH_EVENT_BLANK			0x01
-/* A hardware display blank early change occurred */
-#define MSM_DRM_SWITCH_EARLY_EVENT_BLANK		0x02
-
-enum {
-	/* major panel: power on */
-	MSM_DRM_MAJOR_BLANK_UNBLANK,
-	/* major panel: power off */
-	MSM_DRM_MAJOR_POWERDOWN,
-	/* slave panel: power on */
-	MSM_DRM_SLAVE_BLANK_UNBLANK,
-	/* slave panel: power off */
-	MSM_DRM_SLAVE_POWERDOWN
-};
-
-enum msm_drm_switch_display_id {
-	/* major display */
-	MSM_DRM_SWITCH_MAJOR_PANEL,
-	/* slave display */
-	MSM_DRM_SWITCH_SLAVE_PANEL
-};
-
-struct msm_drm_switch_notifier {
-	enum msm_drm_switch_display_id id;
-	/* transfer panel status*/
-	void *data;
-};
-int msm_drm_switch_register_client(struct notifier_block *nb);
-int msm_drm_switch_unregister_client(struct notifier_block *nb);
-#endif
-
-
-int msm_drm_register_client(struct notifier_block *nb);
-int msm_drm_unregister_client(struct notifier_block *nb);
+extern int msm_drm_register_client(struct notifier_block *nb);
+extern int msm_drm_unregister_client(struct notifier_block *nb);
 #endif

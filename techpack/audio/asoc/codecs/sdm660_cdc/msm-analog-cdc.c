@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -88,6 +88,9 @@ static bool spkr_boost_en = true;
 
 static char on_demand_supply_name[][MAX_ON_DEMAND_SUPPLY_NAME_LENGTH] = {
 	"cdc-vdd-mic-bias",
+	"",
+	"cdc-vdda18-l10",
+	"cdc-vdd-l1",
 };
 
 static struct wcd_mbhc_register
@@ -1595,11 +1598,11 @@ static int msm_anlg_cdc_pa_gain_get(struct snd_kcontrol *kcontrol,
 		if (ear_pa_gain == 0x00) {
 			ucontrol->value.integer.value[0] = 3;
 		} else if (ear_pa_gain == 0x01) {
-			ucontrol->value.integer.value[1] = 2;
+			ucontrol->value.integer.value[0] = 2;
 		} else if (ear_pa_gain == 0x02) {
-			ucontrol->value.integer.value[2] = 1;
+			ucontrol->value.integer.value[0] = 1;
 		} else if (ear_pa_gain == 0x03) {
-			ucontrol->value.integer.value[3] = 0;
+			ucontrol->value.integer.value[0] = 0;
 		} else {
 			dev_err(codec->dev,
 				"%s: ERROR: Unsupported Ear Gain = 0x%x\n",
@@ -1621,7 +1624,6 @@ static int msm_anlg_cdc_pa_gain_get(struct snd_kcontrol *kcontrol,
 			return -EINVAL;
 		}
 	}
-	ucontrol->value.integer.value[0] = ear_pa_gain;
 	dev_dbg(codec->dev, "%s: ear_pa_gain = 0x%x\n", __func__, ear_pa_gain);
 	return 0;
 }
@@ -2785,6 +2787,7 @@ static int msm_anlg_cdc_hphl_dac_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+		usleep_range(2000, 2100);
 		if (get_codec_version(sdm660_cdc) > CAJON)
 			snd_soc_update_bits(codec,
 				MSM89XX_PMIC_ANALOG_RX_HPH_CNP_EN,
@@ -2898,6 +2901,7 @@ static int msm_anlg_cdc_hphr_dac_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+		usleep_range(2000, 2100);
 		if (sdm660_cdc->hph_mode == HD2_MODE)
 			msm_anlg_cdc_dig_notifier_call(codec,
 					DIG_CDC_EVENT_PRE_RX2_INT_ON);
@@ -3450,6 +3454,16 @@ static const struct snd_soc_dapm_widget msm_anlg_cdc_dapm_widgets[] = {
 		msm_anlg_cdc_codec_enable_on_demand_supply,
 		SND_SOC_DAPM_PRE_PMU |
 		SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_SUPPLY("VDDA18_L10_REGULATOR", SND_SOC_NOPM,
+		ON_DEMAND_VDDA18_L10, 0,
+		msm_anlg_cdc_codec_enable_on_demand_supply,
+		SND_SOC_DAPM_PRE_PMU |
+		SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_SUPPLY("VDD_L1_REGULATOR", SND_SOC_NOPM,
+		ON_DEMAND_VDD_L1, 0,
+		msm_anlg_cdc_codec_enable_on_demand_supply,
+		SND_SOC_DAPM_PRE_PMU |
+		SND_SOC_DAPM_POST_PMD),
 
 	SND_SOC_DAPM_MICBIAS_E("MIC BIAS Internal1",
 		MSM89XX_PMIC_ANALOG_MICB_1_EN, 7, 0,
@@ -3630,18 +3644,6 @@ static const struct sdm660_cdc_reg_mask_val
 	{MSM89XX_PMIC_ANALOG_RX_COM_OCP_COUNT, 0xFF, 0xFF},
 };
 
-static void msm_anlg_cdc_codec_init_cache(struct snd_soc_codec *codec)
-{
-	u32 i;
-
-	regcache_cache_only(codec->component.regmap, true);
-	/* update cache with POR values */
-	for (i = 0; i < ARRAY_SIZE(msm89xx_pmic_cdc_defaults); i++)
-		snd_soc_write(codec, msm89xx_pmic_cdc_defaults[i].reg,
-			      msm89xx_pmic_cdc_defaults[i].def);
-	regcache_cache_only(codec->component.regmap, false);
-}
-
 static void msm_anlg_cdc_codec_init_reg(struct snd_soc_codec *codec)
 {
 	u32 i;
@@ -3687,7 +3689,7 @@ static struct regulator *msm_anlg_cdc_find_regulator(
 			return sdm660_cdc->supplies[i].consumer;
 	}
 
-	dev_err(sdm660_cdc->dev, "Error: regulator not found:%s\n"
+	dev_dbg(sdm660_cdc->dev, "Error: regulator not found:%s\n"
 				, name);
 	return NULL;
 }
@@ -3792,7 +3794,6 @@ static int msm_anlg_cdc_device_down(struct snd_soc_codec *codec)
 		MSM89XX_PMIC_ANALOG_SPKR_DAC_CTL, 0x93);
 
 	msm_anlg_cdc_dig_notifier_call(codec, DIG_CDC_EVENT_SSR_DOWN);
-	atomic_set(&pdata->int_mclk0_enabled, false);
 	set_bit(BUS_DOWN, &sdm660_cdc_priv->status_mask);
 	snd_soc_card_change_online_state(codec->component.card, 0);
 
@@ -4139,7 +4140,6 @@ static int msm_anlg_cdc_soc_probe(struct snd_soc_codec *codec)
 				  ARRAY_SIZE(hph_type_detect_controls));
 
 	msm_anlg_cdc_bringup(codec);
-	msm_anlg_cdc_codec_init_cache(codec);
 	msm_anlg_cdc_codec_init_reg(codec);
 	msm_anlg_cdc_update_reg_defaults(codec);
 
@@ -4150,6 +4150,20 @@ static int msm_anlg_cdc_soc_probe(struct snd_soc_codec *codec)
 				on_demand_supply_name[ON_DEMAND_MICBIAS],
 				&sdm660_cdc->on_demand_list[ON_DEMAND_MICBIAS]);
 	atomic_set(&sdm660_cdc->on_demand_list[ON_DEMAND_MICBIAS].ref,
+		   0);
+
+	msm_anlg_cdc_update_micbias_regulator(
+				sdm660_cdc,
+				on_demand_supply_name[ON_DEMAND_VDD_L1],
+				&sdm660_cdc->on_demand_list[ON_DEMAND_VDD_L1]);
+	atomic_set(&sdm660_cdc->on_demand_list[ON_DEMAND_VDD_L1].ref,
+		   0);
+
+	msm_anlg_cdc_update_micbias_regulator(
+			sdm660_cdc,
+			on_demand_supply_name[ON_DEMAND_VDDA18_L10],
+			&sdm660_cdc->on_demand_list[ON_DEMAND_VDDA18_L10]);
+	atomic_set(&sdm660_cdc->on_demand_list[ON_DEMAND_VDDA18_L10].ref,
 		   0);
 
 	sdm660_cdc->fw_data = devm_kzalloc(codec->dev,
@@ -4198,6 +4212,13 @@ static int msm_anlg_cdc_soc_remove(struct snd_soc_codec *codec)
 	sdm660_cdc_priv->on_demand_list[ON_DEMAND_MICBIAS].supply = NULL;
 	atomic_set(&sdm660_cdc_priv->on_demand_list[ON_DEMAND_MICBIAS].ref,
 		   0);
+	sdm660_cdc_priv->on_demand_list[ON_DEMAND_VDD_L1].supply = NULL;
+	atomic_set(&sdm660_cdc_priv->on_demand_list[ON_DEMAND_VDD_L1].ref,
+		   0);
+	sdm660_cdc_priv->on_demand_list[ON_DEMAND_VDDA18_L10].supply = NULL;
+	atomic_set(&sdm660_cdc_priv->on_demand_list[ON_DEMAND_VDDA18_L10].ref,
+		   0);
+
 	wcd_mbhc_deinit(&sdm660_cdc_priv->mbhc);
 
 	return 0;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -329,6 +329,7 @@ static void sde_hw_sspp_setup_format(struct sde_hw_pipe *ctx,
 			SDE_FETCH_CONFIG_RESET_VALUE |
 			ctx->mdp->highest_bank_bit << 18);
 		if (IS_UBWC_20_SUPPORTED(ctx->catalog->ubwc_version)) {
+			alpha_en_mask = const_alpha_en ? BIT(31) : 0;
 			SDE_REG_WRITE(c, SSPP_UBWC_STATIC_CTRL,
 				alpha_en_mask | (ctx->mdp->ubwc_swizzle) |
 				(ctx->mdp->highest_bank_bit << 4));
@@ -374,19 +375,24 @@ static void sde_hw_sspp_setup_secure(struct sde_hw_pipe *ctx,
 
 	c = &ctx->hw;
 
-	if (enable) {
-		if ((rect_mode == SDE_SSPP_RECT_SOLO)
-				|| (rect_mode == SDE_SSPP_RECT_0))
-			secure_bit_mask =
-				(rect_mode == SDE_SSPP_RECT_SOLO) ? 0xF : 0x5;
-		else
-			secure_bit_mask = 0xA;
+	if ((rect_mode == SDE_SSPP_RECT_SOLO)
+			|| (rect_mode == SDE_SSPP_RECT_0))
+		secure_bit_mask =
+			(rect_mode == SDE_SSPP_RECT_SOLO) ? 0xF : 0x5;
+	else
+		secure_bit_mask = 0xA;
 
-		secure = SDE_REG_READ(c, SSPP_SRC_ADDR_SW_STATUS + idx);
+	secure = SDE_REG_READ(c, SSPP_SRC_ADDR_SW_STATUS + idx);
+
+	if (enable)
 		secure |= secure_bit_mask;
-	}
+	else
+		secure &= ~secure_bit_mask;
 
 	SDE_REG_WRITE(c, SSPP_SRC_ADDR_SW_STATUS + idx, secure);
+
+	/* multiple planes share same sw_status register */
+	wmb();
 }
 
 
@@ -859,8 +865,9 @@ static void sde_hw_sspp_setup_ts_prefill(struct sde_hw_pipe *ctx,
 	}
 
 	if (cfg->time) {
-		ts_bytes = mult_frac(TS_CLK * 1000000ULL, cfg->size,
-				cfg->time);
+		u64 temp = DIV_ROUND_UP_ULL(TS_CLK * 1000000ULL, cfg->time);
+
+		ts_bytes = temp * cfg->size;
 		if (ts_bytes > SSPP_TRAFFIC_SHAPER_BPC_MAX)
 			ts_bytes = SSPP_TRAFFIC_SHAPER_BPC_MAX;
 	}

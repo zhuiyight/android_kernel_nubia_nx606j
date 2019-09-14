@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -266,12 +266,28 @@ enum dsi_cmd_set_type {
 	DSI_CMD_SET_ROI,
 	DSI_CMD_SET_TIMING_SWITCH,
 	DSI_CMD_SET_POST_TIMING_SWITCH,
-#ifdef CONFIG_NUBIA_LCD_DISP_PREFERENCE
-	DSI_CMD_SET_CABC_OFF,
-	DSI_CMD_SET_CABC_LEVEL1,
-	DSI_CMD_SET_CABC_LEVEL2,
-	DSI_CMD_SET_CABC_LEVEL3,
-#endif
+	DSI_CMD_SET_HBM_OFF,
+	DSI_CMD_SET_HBM_ON,
+	DSI_CMD_SET_HBM_ON_1,
+	DSI_CMD_SET_HBM_ON_2,
+	DSI_CMD_SET_HBM_ON_3,
+	DSI_CMD_SET_HBM_ON_4,
+	DSI_CMD_SET_HBM_ON_5,
+	DSI_CMD_SET_AOD_ON_1,
+	DSI_CMD_SET_AOD_ON_2,
+	DSI_CMD_SET_AOD_OFF,
+	DSI_CMD_SET_MODE_SRGB,
+	DSI_CMD_SET_MODE_DCI_P3,
+	DSI_CMD_SET_MODE_NIGHT,
+	DSI_CMD_SET_MODE_ONEPLUS,
+	DSI_CMD_SET_MODE_ADAPTION,
+	DSI_CMD_SET_MODE_DEFAULT,
+	DSI_CMD_HBM_MAX_BRIGHTNESS_SET_ON,
+	DSI_CMD_HBM_MAX_BRIGHTNESS_SET_OFF,
+	DSI_CMD_AOD_OFF_HBM_ON_SETTING,
+	DSI_CMD_HBM_OFF_AOD_ON_SETTING,
+	DSI_CMD_SET_AOD_OFF_SAMSUNG,
+	DSI_CMD_SET_AOD_OFF_NEW,
 	DSI_CMD_SET_MAX
 };
 
@@ -410,6 +426,7 @@ struct dsi_mode_info {
  * @ignore_rx_eot:       Ignore Rx EOT packets if set to true.
  * @append_tx_eot:       Append EOT packets for forward transmissions if set to
  *                       true.
+ * @force_hs_clk_lane:   Send continuous clock to the panel.
  */
 struct dsi_host_common_cfg {
 	enum dsi_pixel_format dst_format;
@@ -428,6 +445,7 @@ struct dsi_host_common_cfg {
 	u32 t_clk_pre;
 	bool ignore_rx_eot;
 	bool append_tx_eot;
+	bool force_hs_clk_lane;
 };
 
 /**
@@ -444,6 +462,8 @@ struct dsi_host_common_cfg {
  * @bllp_lp11_en:              Enter low power stop mode (LP-11) during BLLP.
  * @traffic_mode:              Traffic mode for video stream.
  * @vc_id:                     Virtual channel identifier.
+ * @dma_sched_line:         Line number, after vactive end, at which command dma
+ *			       needs to be triggered.
  */
 struct dsi_video_engine_cfg {
 	bool last_line_interleave_en;
@@ -455,6 +475,7 @@ struct dsi_video_engine_cfg {
 	bool bllp_lp11_en;
 	enum dsi_video_traffic_mode traffic_mode;
 	u32 vc_id;
+	u32 dma_sched_line;
 };
 
 /**

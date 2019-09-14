@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -9,7 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
-#define DEBUG
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
@@ -551,6 +550,93 @@ void wcd_mbhc_hs_elec_irq(struct wcd_mbhc *mbhc, int irq_type,
 }
 EXPORT_SYMBOL(wcd_mbhc_hs_elec_irq);
 
+/* liuhaituo@MM.Audio add new function to adapt headset volume */
+bool headset_imp_enable = false;
+EXPORT_SYMBOL_GPL(headset_imp_enable);
+
+static enum {
+    LOW_Z = 0,
+    HIGH_Z,
+    NONE_Z,
+}current_imp = NONE_Z;
+static int hp_volume_gain[3] ={80 /* LOW_Z_gain */,
+							   85 /* HIGH_Z_gain */,
+							   80 /* NONE_Z_gain */};
+static int original_imp = NONE_Z;
+#define HIGH_Z_THR	55 //The actual threshold impedance is 45, phone own impedance ~10
+#define HIGH_Z_MIN_THR	(HIGH_Z_THR - 3)
+#define HIGH_Z_MAX_THR	(HIGH_Z_THR + 3)
+
+static int adapt_headset_volume(struct wcd_mbhc *mbhc, int volume)
+{
+	int ret = 0;
+	struct snd_soc_codec *codec = mbhc->codec;
+	struct snd_soc_component component = codec->component;
+	int mask = (1 << (fls(40 - 84) -1)) - 1;
+	//because volume from -84 to 40;
+	volume -= 84;
+
+	/* set RX1 Mix Digital Volume */
+	ret = snd_soc_component_update_bits(&component, 0xb5c, mask, volume);
+	if (ret < 0)
+		return ret;
+
+	/* set RX2 Mix Digital Volume */
+	ret = snd_soc_component_update_bits(&component, 0xb70, mask, volume);
+	if (ret < 0)
+		return ret;
+
+	/* set RX1 Digital Volume */
+	ret = snd_soc_component_update_bits(&component, 0xb59, mask, volume);
+	if (ret < 0)
+		return ret;
+
+	/* set RX2 Digital Volume */
+	ret = snd_soc_component_update_bits(&component, 0xb6d, mask, volume);
+	if (ret < 0)
+		return ret;
+
+	pr_info("%s: set %d success!\n", __func__, volume);
+
+	return ret;
+}
+
+static void judge_headset_impedance(struct wcd_mbhc *mbhc)
+{
+	int ret = 0;
+	int left_z = mbhc->zl;
+	int right_z = mbhc->zr;
+
+	pr_err("%s: left_z is %d, right_z is %d\n", __func__, left_z, right_z);
+
+	if ((original_imp != NONE_Z) &&
+			(left_z > HIGH_Z_MIN_THR) && (left_z < HIGH_Z_MAX_THR) &&
+			(right_z > HIGH_Z_MIN_THR) && (right_z < HIGH_Z_MAX_THR)) {
+		current_imp = original_imp;
+	} else if ((left_z < HIGH_Z_THR) || (right_z < HIGH_Z_THR)) {
+		if (((left_z == 0) || (right_z == 0)) && (original_imp != NONE_Z))
+			current_imp = original_imp;
+		else {
+			current_imp = LOW_Z;
+			original_imp = current_imp;
+		}
+	} else {
+		current_imp = HIGH_Z;
+		original_imp = current_imp;
+	}
+
+	pr_err("%s: current_imp is %d, original_imp is %d\n",
+			__func__,
+			current_imp,
+			original_imp);
+
+	ret = adapt_headset_volume(mbhc, hp_volume_gain[current_imp]);
+	if (ret < 0)
+		pr_err("%s: set headset volume fail\n", __func__);
+
+	return;
+}
+
 void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 				enum snd_jack_types jack_type)
 {
@@ -719,6 +805,9 @@ void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 		}
 
 		mbhc->hph_status |= jack_type;
+/* liuhaituo@MM.Audio add new function to adapt headset volume */
+		if (headset_imp_enable)
+			judge_headset_impedance(mbhc);
 
 		pr_debug("%s: Reporting insertion %d(%x)\n", __func__,
 			 jack_type, mbhc->hph_status);
@@ -880,10 +969,6 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 
 	if ((mbhc->current_plug == MBHC_PLUG_TYPE_NONE) &&
 	    detection_type) {
-	       if (mbhc->mbhc_cfg->msm_swap_set){
-			pr_debug("%s: msm_swap_set to (0,0)\n", __func__);
-			mbhc->mbhc_cfg->msm_swap_set(codec,0,0);
-		}
 		/* Make sure MASTER_BIAS_CTL is enabled */
 		mbhc->mbhc_cb->mbhc_bias(codec, true);
 
@@ -944,6 +1029,8 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 			jack_type = SND_JACK_HEADSET;
 			break;
 		case MBHC_PLUG_TYPE_HIGH_HPH:
+			if (mbhc->mbhc_detection_logic == WCD_DETECTION_ADC)
+			    WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_ELECT_ISRC_EN, 0);
 			mbhc->is_extn_cable = false;
 			jack_type = SND_JACK_LINEOUT;
 			break;
@@ -962,10 +1049,6 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_ELECT_SCHMT_ISRC, 0);
 		mbhc->extn_cable_hph_rem = false;
 		wcd_mbhc_report_plug(mbhc, 0, jack_type);
-		if (mbhc->mbhc_cfg->msm_swap_set) {
-			pr_debug("%s: msm_swap_set to (0,1)\n", __func__);
-			mbhc->mbhc_cfg->msm_swap_set(codec,0,1);
-		}
 
 	} else if (!detection_type) {
 		/* Disable external voltage source to micbias if present */
@@ -1323,13 +1406,8 @@ static int wcd_mbhc_initialise(struct wcd_mbhc *mbhc)
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_INSREM_DBNC, 6);
 	}
 
-#ifdef CONFIG_ZTEMT_AUDIO
-	/* Button Debounce set to 32ms */
-	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_BTN_DBNC, 3);
-#else
 	/* Button Debounce set to 16ms */
 	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_BTN_DBNC, 2);
-#endif
 
 	/* Enable micbias ramp */
 	if (mbhc->mbhc_cb->mbhc_micb_ramp_control)
@@ -1489,7 +1567,6 @@ static int wcd_mbhc_set_keycode(struct wcd_mbhc *mbhc)
 	return result;
 }
 
-#if 0
 static int wcd_mbhc_usb_c_analog_setup_gpios(struct wcd_mbhc *mbhc,
 					     bool active)
 {
@@ -1660,7 +1737,6 @@ static int wcd_mbhc_usb_c_analog_deinit(struct wcd_mbhc *mbhc)
 
 	return 0;
 }
-#endif
 
 static int wcd_mbhc_init_gpio(struct wcd_mbhc *mbhc,
 			      struct wcd_mbhc_config *mbhc_cfg,
@@ -1748,11 +1824,11 @@ int wcd_mbhc_start(struct wcd_mbhc *mbhc, struct wcd_mbhc_config *mbhc_cfg)
 		dev_dbg(mbhc->codec->dev, "%s: calling usb_c_analog_init\n",
 			__func__);
 		/* init PMI notifier */
-		/*rc = wcd_mbhc_usb_c_analog_init(mbhc);
+		rc = wcd_mbhc_usb_c_analog_init(mbhc);
 		if (rc) {
 			rc = EPROBE_DEFER;
 			goto err;
-		}*/
+		}
 	}
 
 	/* Set btn key code */
@@ -1824,7 +1900,7 @@ void wcd_mbhc_stop(struct wcd_mbhc *mbhc)
 	}
 
 	if (mbhc->mbhc_cfg->enable_usbc_analog) {
-		//wcd_mbhc_usb_c_analog_deinit(mbhc);
+		wcd_mbhc_usb_c_analog_deinit(mbhc);
 		/* free GPIOs */
 		if (config->usbc_en1_gpio > 0)
 			gpio_free(config->usbc_en1_gpio);
