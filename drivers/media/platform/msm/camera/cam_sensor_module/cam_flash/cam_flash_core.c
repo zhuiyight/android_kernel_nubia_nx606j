@@ -396,6 +396,15 @@ static int cam_flash_ops(struct cam_flash_ctrl *flash_ctrl,
 		flash_ctrl->soc_info.soc_private;
 
 	if (op == CAMERA_SENSOR_FLASH_OP_FIRELOW) {
+		/*ZTEMT: fengxun add for FIRELOW current--------Start*/
+		if((flash_ctrl->torch_num_sources == 2) && (120 == flash_data->led_current_ma[0]) 
+			&& (120 == flash_data->led_current_ma[1])){
+			CAM_ERR(CAM_FLASH, "FIRELOW 2*300  change to 120");
+			flash_data->led_current_ma[0] = 120;
+			flash_data->led_current_ma[1] = 0;
+		}
+		/*ZTEMT: fengxun add for FIRELOW current--------End*/
+
 		for (i = 0; i < flash_ctrl->torch_num_sources; i++) {
 			if (flash_ctrl->torch_trigger[i]) {
 				max_current = soc_private->torch_max_current[i];

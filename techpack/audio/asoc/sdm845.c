@@ -615,20 +615,38 @@ static int msm_wsa881x_init(struct snd_soc_component *component);
 static struct wcd_mbhc_config wcd_mbhc_cfg = {
 	.read_fw_bin = false,
 	.calibration = NULL,
+#ifdef CONFIG_ZTEMT_AUDIO
+	.detect_extn_cable = false,
+#else
 	.detect_extn_cable = true,
+#endif
 	.mono_stero_detection = false,
 	.swap_gnd_mic = NULL,
 	.hs_ext_micbias = true,
 
+#ifdef CONFIG_ZTEMT_AUDIO
 	.key_code[0] = KEY_MEDIA,
 	.key_code[1] = KEY_VOLUMEUP,
 	.key_code[2] = KEY_VOLUMEDOWN,
 	.key_code[3] = 0,
+#else
+	.key_code[0] = KEY_MEDIA,
+	.key_code[1] = KEY_VOICECOMMAND,
+	.key_code[2] = KEY_VOLUMEUP,
+	.key_code[3] = KEY_VOLUMEDOWN,
+#endif
+
 	.key_code[4] = 0,
 	.key_code[5] = 0,
 	.key_code[6] = 0,
 	.key_code[7] = 0,
+
+#ifdef CONFIG_ZTEMT_AUDIO
+	.linein_th = 0,
+#else
 	.linein_th = 5000,
+#endif
+
 	.moisture_en = true,
 	.mbhc_micbias = MIC_BIAS_2,
 	.anc_micbias = MIC_BIAS_2,
@@ -4193,7 +4211,16 @@ static void *def_tavil_mbhc_cal(void)
 	btn_high = ((void *)&btn_cfg->_v_btn_low) +
 		(sizeof(btn_cfg->_v_btn_low[0]) * btn_cfg->num_btn);
 
-	
+#ifdef CONFIG_ZTEMT_AUDIO
+	btn_high[0] = 100;
+	btn_high[1] = 250;
+	btn_high[2] = 425;
+	btn_high[3] = 425;
+	btn_high[4] = 425;
+	btn_high[5] = 425;
+	btn_high[6] = 425;
+	btn_high[7] = 425;
+#else	
 	btn_high[0] = 112;
 	btn_high[1] = 220;
 	btn_high[2] = 437;
@@ -4202,7 +4229,7 @@ static void *def_tavil_mbhc_cal(void)
 	btn_high[5] = 600;
 	btn_high[6] = 600;
 	btn_high[7] = 600;
-	
+#endif	
 
 	return tavil_wcd_cal;
 }

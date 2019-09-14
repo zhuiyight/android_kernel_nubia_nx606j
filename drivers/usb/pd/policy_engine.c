@@ -506,7 +506,12 @@ static inline void start_usb_host(struct usbpd *pd, bool ss)
 	extcon_set_property(pd->extcon, EXTCON_USB_HOST,
 			EXTCON_PROP_USB_TYPEC_POLARITY, val);
 
+#ifdef CONFIG_NUBIA_USB_HIGH_SPEED
+	val.intval = 0;
+#else
 	val.intval = ss;
+#endif
+
 	extcon_set_property(pd->extcon, EXTCON_USB_HOST,
 			EXTCON_PROP_USB_SS, val);
 
@@ -527,7 +532,12 @@ static inline void start_usb_peripheral(struct usbpd *pd)
 	extcon_set_property(pd->extcon, EXTCON_USB,
 			EXTCON_PROP_USB_TYPEC_POLARITY, val);
 
+#ifdef CONFIG_NUBIA_USB_HIGH_SPEED
+	val.intval = 0;
+#else
 	val.intval = 1;
+#endif
+
 	extcon_set_property(pd->extcon, EXTCON_USB, EXTCON_PROP_USB_SS, val);
 
 	extcon_set_state_sync(pd->extcon, EXTCON_USB, 1);

@@ -33,6 +33,10 @@
 #include "dsi_pwr.h"
 #include "sde_dbg.h"
 
+#ifdef CONFIG_NUBIA_LCD_DISP_PREFERENCE
+#include "nubia_disp_preference.h"
+#endif
+
 #define to_dsi_bridge(x) container_of((x), struct dsi_bridge, base)
 #define to_dsi_display(x) container_of(x, struct dsi_display, host)
 #define INT_BASE_10 10
@@ -5042,6 +5046,11 @@ int dsi_display_dev_probe(struct platform_device *pdev)
 			primary_display = display;
 		else
 			secondary_display = display;
+
+#ifdef CONFIG_NUBIA_LCD_DISP_PREFERENCE
+		nubia_set_dsi_ctrl(display);
+#endif
+
 		rc = _dsi_display_dev_init(display);
 		if (rc) {
 			pr_err("device init failed, rc=%d\n", rc);

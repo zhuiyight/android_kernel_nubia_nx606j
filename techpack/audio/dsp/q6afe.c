@@ -25,6 +25,7 @@
 #include <dsp/q6audio-v2.h>
 #include <ipc/apr_tal.h>
 #include "adsp_err.h"
+#include <dsp/msm-ultrasound.h>
 
 #define WAKELOCK_TIMEOUT	5000
 enum {
@@ -109,6 +110,7 @@ struct afe_ctl {
 	u16 dtmf_gen_rx_portid;
 	struct audio_cal_info_spk_prot_cfg	prot_cfg;
 	struct afe_spkr_prot_calib_get_resp	calib_data;
+	struct afe_ultrasound_calib_get_resp ultrasound_calib_data;
 	struct audio_cal_info_sp_th_vi_ftm_cfg	th_ftm_cfg;
 	struct audio_cal_info_sp_ex_vi_ftm_cfg	ex_ftm_cfg;
 	struct afe_sp_th_vi_get_param_resp	th_vi_resp;
@@ -413,6 +415,12 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 			wake_up(&this_afe.wait[data->token]);
 		else
 			return -EINVAL;
+	} else if (data->opcode == ULTRASOUND_OPCODE) {
+		if (NULL != data->payload) {
+			nubia_process_apr_payload(data->payload);
+		}
+		else
+			pr_err("Ultrasound payload ptr is Invalid");
 	} else if (data->payload_size) {
 		uint32_t *payload;
 		uint16_t port_id = 0;
@@ -1252,7 +1260,7 @@ static int afe_spk_prot_prepare(int src_port, int dst_port, int param_id,
 	memset(&config, 0, sizeof(config));
 	if (!prot_config) {
 		pr_err("%s: Invalid params\n", __func__);
-		goto fail_cmd;
+		goto fail_cmd;	
 	}
 	ret = q6audio_validate_port(src_port);
 	if (ret < 0) {
@@ -1346,6 +1354,15 @@ fail_cmd:
 	__func__, config.pdata.param_id, ret, src_port);
 	return ret;
 }
+
+afe_ultrasound_state_t ultra_afe = {
+    .ptr_apr = &this_afe.apr,
+    .ptr_status = &this_afe.status,
+    .ptr_state = &this_afe.state,
+    .ptr_wait = this_afe.wait,
+    .timeout_ms = TIMEOUT_MS,
+    .ptr_ultrasound_calib_data = &this_afe.ultrasound_calib_data
+};
 
 static void afe_send_cal_spkr_prot_tx(int port_id)
 {
@@ -3705,7 +3722,7 @@ static int __afe_port_start(u16 port_id, union afe_port_config *afe_config,
 	config.pdata.param_size = sizeof(config.port);
 
 	config.port = *afe_config;
-	if (((enc_cfg != NULL) || (dec_cfg != NULL)) &&
+if (((enc_cfg != NULL) || (dec_cfg != NULL)) &&
 	    (codec_format != ASM_MEDIA_FMT_NONE) &&
 	    (cfg_type == AFE_PARAM_ID_SLIMBUS_CONFIG)) {
 		config.port.slim_sch.data_format =

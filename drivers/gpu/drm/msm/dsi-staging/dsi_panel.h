@@ -100,6 +100,10 @@ struct dsi_backlight_config {
 	u32 bl_scale_ad;
 	bool bl_high2bit;
 
+#ifdef CONFIG_NUBIA_LCD_BACKLIGHT_CURVE
+	uint32_t backlight_curve[256];
+#endif
+
 	int en_gpio;
 	/* PWM params */
 	bool pwm_pmi_control;
@@ -122,6 +126,12 @@ struct dsi_panel_reset_config {
 	u32 count;
 
 	int reset_gpio;
+
+#ifdef CONFIG_NUBIA_SWITCH_LCD
+	int sub_tp_reset_gpio;
+	int sub_lcd_reset_gpio;
+#endif
+
 	int disp_en_gpio;
 	int lcd_mode_sel_gpio;
 	u32 mode_sel_state;
@@ -186,6 +196,11 @@ struct dsi_panel {
 	u32 num_timing_nodes;
 
 	struct dsi_regulator_info power_info;
+
+#ifdef CONFIG_NUBIA_SWITCH_LCD
+	struct dsi_regulator_info sub_panel_power_info;
+#endif
+
 	struct dsi_backlight_config bl_config;
 	struct dsi_panel_reset_config reset_config;
 	struct dsi_pinctrl_info pinctrl;
@@ -312,6 +327,10 @@ int dsi_panel_switch(struct dsi_panel *panel);
 int dsi_panel_post_switch(struct dsi_panel *panel);
 
 void dsi_dsc_pclk_param_calc(struct msm_display_dsc_info *dsc, int intf_width);
+
+#ifdef CONFIG_NUBIA_LCD_DISP_PREFERENCE
+int nubia_dsi_panel_cabc(struct dsi_panel *panel, uint32_t cabc_modes);
+#endif
 
 struct dsi_panel *dsi_panel_ext_bridge_get(struct device *parent,
 				struct device_node *of_node,

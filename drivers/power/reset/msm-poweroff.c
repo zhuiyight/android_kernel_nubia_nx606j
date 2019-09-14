@@ -139,6 +139,28 @@ static int scm_set_dload_mode(int arg1, int arg2)
 				&desc);
 }
 
+#ifdef CONFIG_NUBIA_RESTART_BOOTMODE
+static void scm_disable_sdi(void)
+{
+	int ret;
+	struct scm_desc desc = {
+		.args[0] = 1,
+		.args[1] = 0,
+		.arginfo = SCM_ARGS(2),
+	};
+
+	/* Needed to bypass debug image on some chips */
+	if (!is_scm_armv8())
+		ret = scm_call_atomic2(SCM_SVC_BOOT,
+			       SCM_WDOG_DEBUG_BOOT_PART, 1, 0);
+	else
+		ret = scm_call2_atomic(SCM_SIP_FNID(SCM_SVC_BOOT,
+			  SCM_WDOG_DEBUG_BOOT_PART), &desc);
+	if (ret)
+		pr_err("Failed to disable secure wdog debug: %d\n", ret);
+}
+#endif
+
 static void set_dload_mode(int on)
 {
 	int ret;
@@ -156,6 +178,12 @@ static void set_dload_mode(int on)
 	ret = scm_set_dload_mode(on ? dload_type : 0, 0);
 	if (ret)
 		pr_err("Failed to set secure DLOAD mode: %d\n", ret);
+
+
+#ifdef CONFIG_NUBIA_RESTART_BOOTMODE
+	if (!on)
+		scm_disable_sdi();
+#endif
 
 	dload_mode_enabled = on;
 }
@@ -255,6 +283,14 @@ void msm_set_restart_mode(int mode)
 	restart_mode = mode;
 }
 EXPORT_SYMBOL(msm_set_restart_mode);
+
+#ifdef CONFIG_NUBIA_INPUT_KEYRESET
+void msm_set_dload_mode(int mode)
+{
+	download_mode = mode;
+}
+EXPORT_SYMBOL(msm_set_dload_mode);
+#endif
 
 /*
  * Force the SPMI PMIC arbiter to shutdown so that no more SPMI transactions
@@ -390,6 +426,12 @@ static void msm_restart_prepare(const char *cmd)
 			__raw_writel(0x77665501, restart_reason);
 		}
 	}
+
+#ifdef CONFIG_NUBIA_PANIC_BOOTMODE
+	if (in_panic) {
+		qpnp_pon_set_restart_reason(PON_RESTART_REASON_PANIC);
+	}
+#endif
 
 	flush_cache_all();
 

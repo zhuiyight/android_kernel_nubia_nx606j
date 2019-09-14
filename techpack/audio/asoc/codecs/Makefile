@@ -10,9 +10,6 @@ endif
 ifneq (,$(filter $(CONFIG_SND_SOC_WCD_MBHC_ADC),y m))
 	snd-soc-wcd-mbhc-objs += wcd-mbhc-adc.o
 endif
-snd-soc-wcd-spi-objs := wcd-spi.o
-snd-soc-wcd9335-objs := wcd9335.o
-snd-soc-wcd-cpe-objs := wcd_cpe_services.o wcd_cpe_core.o
 
 obj-$(CONFIG_SND_SOC_WCD9335) += snd-soc-wcd9335.o
 obj-$(CONFIG_SND_SOC_WCD_CPE)   += snd-soc-wcd-cpe.o

@@ -74,7 +74,11 @@
 #define LINESTATE_DP			BIT(0)
 #define LINESTATE_DM			BIT(1)
 
+#ifdef CONFIG_NUBIA_USB_PHY_TUNE
+#define BIAS_CTRL_2_OVERRIDE_VAL	0x19
+#else
 #define BIAS_CTRL_2_OVERRIDE_VAL	0x28
+#endif
 
 #define SQ_CTRL1_CHIRP_DISABLE		0x20
 #define SQ_CTRL2_CHIRP_DISABLE		0x80
@@ -155,6 +159,11 @@ struct qusb_phy {
 	int			qusb_phy_reg_offset_cnt;
 
 	u32			tune_val;
+
+#ifdef CONFIG_NUBIA_USB_PHY_TUNE
+	int			tune_efuse_correction;
+#endif
+
 	bool		overwrite_bias2_disable;
 	int			efuse_bit_pos;
 	int			efuse_num_of_bits;
@@ -191,6 +200,11 @@ struct qusb_phy {
 	/* override TUNEX registers value */
 	struct dentry		*root;
 	u8			tune[5];
+
+#ifdef CONFIG_NUBIA_USB_PHY_TUNE
+	u8			ctrl2;
+#endif
+
 	u8                      bias_ctrl2;
 
 	struct hrtimer		timer;
@@ -474,6 +488,19 @@ static void qusb_phy_get_tune1_param(struct qusb_phy *qphy)
 
 	qphy->tune_val = TUNE_VAL_MASK(qphy->tune_val,
 				qphy->efuse_bit_pos, bit_mask);
+
+#ifdef CONFIG_NUBIA_USB_PHY_TUNE
+	if(qphy->tune_efuse_correction) {
+		int corrected_val = qphy->tune_val + qphy->tune_efuse_correction;
+		if (corrected_val < 0)
+			qphy->tune_val = 0;
+		else
+			qphy->tune_val = min_t(unsigned, corrected_val, 7);
+		pr_debug("%s(): adjust tune1 value to:%d, correction value = %d\n",
+					__func__, qphy->tune_val, qphy->tune_efuse_correction);
+	}
+#endif
+
 	reg = readb_relaxed(qphy->base + qphy->phy_reg[PORT_TUNE1]);
 	pr_debug("%s(): tune1 value:0x%x before change\n",__func__, reg);
 	if (qphy->tune_val) {
@@ -581,6 +608,13 @@ static void qusb_phy_host_init(struct usb_phy *phy)
 	if (qphy->bias_ctrl2)
 		writel_relaxed(qphy->bias_ctrl2,
 				qphy->base + qphy->phy_reg[BIAS_CTRL_2]);
+
+
+#ifdef CONFIG_NUBIA_USB_PHY_TUNE
+	if (qphy->ctrl2)
+		writel_relaxed(qphy->ctrl2,
+			qphy->base + qphy->phy_reg[BIAS_CTRL_2]);
+#endif
 
 	/* Ensure above write is completed before turning ON ref clk */
 	wmb();
@@ -1156,6 +1190,19 @@ static int qusb_phy_create_debugfs(struct qusb_phy *qphy)
 		goto create_err;
 	}
 
+#ifdef CONFIG_NUBIA_USB_PHY_TUNE
+	snprintf(name, sizeof(name), "ctrl2");
+	file = debugfs_create_x8(name, 0644, qphy->root,
+					&qphy->ctrl2);
+	if (IS_ERR_OR_NULL(file)) {
+		dev_err(qphy->phy.dev,
+			"can't create debugfs entry for %s\n", name);
+		debugfs_remove_recursive(qphy->root);
+		ret = ENOMEM;
+		goto create_err;
+	}
+#endif
+
 create_err:
 	return ret;
 }
@@ -1204,6 +1251,12 @@ static int qusb_phy_probe(struct platform_device *pdev)
 						"qcom,efuse-num-bits",
 						&qphy->efuse_num_of_bits);
 			}
+
+#ifdef CONFIG_NUBIA_USB_PHY_TUNE
+			of_property_read_u32(dev->of_node,
+					"qcom,tune-efuse-correction",
+					&qphy->tune_efuse_correction);
+#endif
 
 			if (ret) {
 				dev_err(dev,
