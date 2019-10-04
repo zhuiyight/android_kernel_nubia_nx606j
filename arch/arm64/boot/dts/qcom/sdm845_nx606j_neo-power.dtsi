@@ -1,3 +1,7 @@
+#include "pm8998.dtsi"
+#include "sdm845-mtp.dtsi"
+#include "smb1355.dtsi"
+
 &mtp_batterydata {
 	qcom,batt-id-range-pct = <15>;
 	#include "fg-gen3-batterydata-atl-3450mah.dtsi"

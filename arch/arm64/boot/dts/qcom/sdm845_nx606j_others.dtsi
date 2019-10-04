@@ -2,6 +2,8 @@
  * nubia overwrite dts
  */
 
+#include "pm8998.dtsi"
+
 &spmi_bus {
 	qcom,pm8998@0 {
 		qcom,power-on@800 {
@@ -115,7 +117,7 @@
 };
 
 &low_soc {
-        temperature = <5>;
+	temperature = <5>;
 };
 
 &pmi8998_wled {
