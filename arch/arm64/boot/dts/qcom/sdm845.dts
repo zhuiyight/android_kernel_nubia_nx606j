@@ -13,6 +13,7 @@
 /dts-v1/;
 
 #include "sdm845.dtsi"
+#include "sdm845_nx606j_soc.dtsi"
 
 / {
 	model = "Qualcomm Technologies, Inc. SDM845 v1 SoC";
