@@ -1,0 +1,15 @@
+/*
+ * nubia overwrite dts
+ */
+
+
+#include "sdm845_nx606j_others.dtsi"
+#include "sdm845_nx606j_nfc.dtsi"
+#include "sdm845_nx606j_neo-power.dtsi"
+#include "sdm845_nx606j_tp.dtsi"
+#include "sdm845_nx606j_usb.dtsi"
+#include "sdm845_nx606j_sensors.dtsi"
+#include "sdm845_nx606j_finger.dtsi"
+#include "sdm845_nx606j_leds.dtsi"
+#include "sdm845_nx606j_haptics.dtsi"
+#include "sdm845_nx606j_camera.dtsi"
