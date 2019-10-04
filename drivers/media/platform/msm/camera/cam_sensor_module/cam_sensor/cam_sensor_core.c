@@ -855,6 +855,7 @@ unsigned char *lscbuf)
     CAM_ERR(CAM_SENSOR, "LSC calibration successful");
     return rc;
 }
+
 int32_t OV8856_AWB_Calibration(struct camera_io_master io_master_info,
 unsigned char *awbbuf)
 {
@@ -951,6 +952,7 @@ unsigned char *awbbuf)
     CAM_ERR(CAM_SENSOR, "AWB calibration successful");
     return rc;
 }
+
 int32_t OV8856_OTP_Calibration(struct camera_io_master io_master_info)
 {
     int rc = 0;
@@ -1029,7 +1031,7 @@ int32_t OV8856_OTP_Calibration(struct camera_io_master io_master_info)
     }
 
     rc = camera_io_dev_read_seq(&io_master_info,addr,awbbuf,
-        CAMERA_SENSOR_I2C_TYPE_WORD, 8);
+        CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE, 8);
     if (rc < 0) 
     {
         CAM_ERR(CAM_SENSOR, "camera_io_dev_read_seq error");
@@ -1063,7 +1065,7 @@ int32_t OV8856_OTP_Calibration(struct camera_io_master io_master_info)
     }
 
     rc = camera_io_dev_read_seq(&io_master_info,addr,lscbuf,
-        CAMERA_SENSOR_I2C_TYPE_WORD, 241);
+        CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE, 241);
     if (rc < 0) 
     {
         CAM_ERR(CAM_SENSOR, "camera_io_dev_read_seq error");

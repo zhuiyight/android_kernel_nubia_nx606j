@@ -139,28 +139,6 @@ static int scm_set_dload_mode(int arg1, int arg2)
 				&desc);
 }
 
-#ifdef CONFIG_NUBIA_RESTART_BOOTMODE
-static void scm_disable_sdi(void)
-{
-	int ret;
-	struct scm_desc desc = {
-		.args[0] = 1,
-		.args[1] = 0,
-		.arginfo = SCM_ARGS(2),
-	};
-
-	/* Needed to bypass debug image on some chips */
-	if (!is_scm_armv8())
-		ret = scm_call_atomic2(SCM_SVC_BOOT,
-			       SCM_WDOG_DEBUG_BOOT_PART, 1, 0);
-	else
-		ret = scm_call2_atomic(SCM_SIP_FNID(SCM_SVC_BOOT,
-			  SCM_WDOG_DEBUG_BOOT_PART), &desc);
-	if (ret)
-		pr_err("Failed to disable secure wdog debug: %d\n", ret);
-}
-#endif
-
 static void set_dload_mode(int on)
 {
 	int ret;

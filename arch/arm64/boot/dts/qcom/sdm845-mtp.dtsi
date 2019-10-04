@@ -14,8 +14,7 @@
 #include "sdm845-pmic-overlay.dtsi"
 #include "sdm845-pinctrl-overlay.dtsi"
 
-//#include "sdm845-camera-sensor-mtp.dtsi"
-#include NUBIA_CAMERA_OVERWRITE_DTSI_FILE
+#include "sdm845-camera-sensor-mtp.dtsi"
 
 &qupv3_se10_i2c {
 #include "smb1355.dtsi"

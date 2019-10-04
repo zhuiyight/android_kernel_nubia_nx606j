@@ -846,6 +846,7 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 #else
 	if (gpio_is_valid(panel->reset_config.reset_gpio))
 		gpio_set_value(panel->reset_config.reset_gpio, 0);
+#endif
 
 #ifdef CONFIG_NUBIA_SWITCH_LCD
 	if(!switch_panel_res){

@@ -1772,8 +1772,6 @@ static int qpnp_rgb_set(struct qpnp_led_data *led)
 {
 	int rc;
 	int duty_us, duty_ns, period_us;
-	LOG_DEBUG_IF(led->debug_level, "set mode swith brightness:%d blinking:%d ",
-		led->cdev.brightness,led->rgb_cfg->pwm_cfg->blinking);
 
 	if (led->cdev.brightness) {
 		if (!led->rgb_cfg->pwm_cfg->blinking)
@@ -1810,9 +1808,6 @@ static int qpnp_rgb_set(struct qpnp_led_data *led)
 				"pwm config failed\n");
 			return rc;
 		}
-		LOG_DEBUG_IF(led->debug_level, "set mode swith enable:%d mode:%d ",led->rgb_cfg->pwm_cfg->pwm_enabled,
-                    led->rgb_cfg->pwm_cfg->mode);
-		LOG_DEBUG_IF(led->debug_level, "set mode swith id:%d  :channel:%d\n",led->id,led->ztemt_channel);
 
 		rc = qpnp_led_masked_write(led,
 			RGB_LED_EN_CTL(led->base),
@@ -1827,10 +1822,6 @@ static int qpnp_rgb_set(struct qpnp_led_data *led)
 			led->rgb_cfg->pwm_cfg->pwm_enabled = 1;
 		}
 	} else {
-
-	        LOG_DEBUG_IF(led->debug_level,"set mode swith enable:%d mode:%d ",led->rgb_cfg->pwm_cfg->pwm_enabled,
-                led->rgb_cfg->pwm_cfg->mode);
-
 		led->rgb_cfg->pwm_cfg->mode =
 			led->rgb_cfg->pwm_cfg->default_mode;
 		if (led->rgb_cfg->pwm_cfg->pwm_enabled) {
@@ -2967,7 +2958,6 @@ static int  qpnp_led_action_trigger(struct qpnp_led_data *led)
 		pwm_free(pwm_cfg->pwm_dev);
 		qpnp_pwm_init(pwm_cfg, led->pdev, led->cdev.name);
 		qpnp_led_set(&led->cdev, led->cdev.brightness);
-		LOG_DEBUG_IF(led->debug_level, "Failed to initialize pwm with new ramp step value\n");
 	}
 	qpnp_led_set(&led->cdev, led->cdev.brightness);
 
@@ -2994,7 +2984,6 @@ static ssize_t fade_parameter_store(struct device *dev,
 	parm3 = after;
 	led->fulloff_time = (int)simple_strtoul(parm3, &after, 10);
 
-	LOG_DEBUG_IF(led->debug_level, "fade_time=%d ,on_time=%d , off_time=%d\n",	led->fade_time,led->fullon_time,led->fulloff_time);
 	mutex_unlock(&led->qpnp_mutex);
 
 	return count;
@@ -3025,8 +3014,6 @@ static ssize_t grade_parameter_store(struct device *dev,
 	parm2 = after;
 	led->max_grade=(int) simple_strtoul(parm2, &after, 10);
 
-	LOG_DEBUG_IF(led->debug_level, "min_grade=%d , max_grade=%d\n",led->min_grade,led->max_grade);
-
 	mutex_unlock(&led->qpnp_mutex);
 	return count;
 }
@@ -3050,8 +3037,6 @@ static ssize_t outn_store(struct device *dev,
 
 	mutex_lock(&led->qpnp_mutex);
 	led->ztemt_channel = (int) simple_strtoul(buf, &after, 10);
-
-	LOG_DEBUG_IF(led->debug_level, "ztemt_channel=%d \n",led->ztemt_channel);
 
 	mutex_unlock(&led->qpnp_mutex);
 	return count;
@@ -3107,7 +3092,6 @@ static int  qpnp_led_mode_set(struct qpnp_led_data *led,struct qpnp_led_data *le
 
 	if (NULL == pwm_cfg)
 		return -ENODEV;
-	LOG_DEBUG_IF(led->debug_level,"set mode swith ztemt_mode:%d ",led_param->ztemt_mode);
 	switch (led_param->ztemt_mode){
 		case RGB_LED_MODE_CLOSED:
 		case RGB_LED_MODE_OFF:
@@ -3154,10 +3138,6 @@ static int  qpnp_led_mode_set(struct qpnp_led_data *led,struct qpnp_led_data *le
                    led_param->fade_time= led_param->fade_time;
 			led_param->fullon_time=  led_param->fullon_time;
 			led_param->fulloff_time=led_param->fulloff_time;
-
-			LOG_DEBUG_IF(led->debug_level,"fade_time:%x fullon_time:%x,fulloff_time:%x\n",led_param->fade_time,
-                            led_param->fullon_time,led_param->fulloff_time);
-
 			led_param->max_grade = led->rgb_cfg->autoblink_max_grade;
 			qpnp_led_fill_parameter_breath_blink(led_param, pwm_cfg,loop);
 			led->cdev.brightness=led->cdev.max_brightness;
@@ -3185,8 +3165,6 @@ static ssize_t qpnp_led_mode_store(struct device *dev,
 	mutex_lock(&led->qpnp_mutex);
 	led->ztemt_mode=(int) simple_strtoul(buf, &after,10);
 
-	LOG_DEBUG_IF(led->debug_level, "blink_mode=%d\n",led->ztemt_mode);
-
 	if(led->min_grade < 0){
 		led->min_grade = 0;
 	}else if(led->min_grade > led->cdev.max_brightness){
@@ -3200,8 +3178,6 @@ static ssize_t qpnp_led_mode_store(struct device *dev,
 
 	for (i = 0; i < led->num_leds; i++)
 	{
-		LOG_DEBUG_IF(led->debug_level,"led->ztemt_channel:%d,led_channel:%d,%d,\n",led->ztemt_channel,
-			(&led_array[i])->rgb_cfg->led_channel,i);
 		if (led->ztemt_channel == (&led_array[i])->rgb_cfg->led_channel)
 		{
 			qpnp_led_mode_set(&led_array[i],led);

@@ -163,12 +163,8 @@ static int fingerprint_detect_probe(struct platform_device *pdev)
 		rc = -EINVAL;
 		goto exit;
 	}
-	if (of_property_read_bool(fp_detect->dev->of_node, "oem,enchilada"))
-		fp_detect->project_version = 0x02;
-	else if (of_property_read_bool(fp_detect->dev->of_node, "oem,fajta"))
-		fp_detect->project_version = 0x03;
-	else
-		fp_detect->project_version = 0x01;
+
+	fp_detect->project_version = 0x01;
 
 	if (fp_detect->project_version < 0x03) {
 		rc = fp_pinctrl_init(fp_detect);

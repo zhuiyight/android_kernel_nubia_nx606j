@@ -30,7 +30,7 @@
 #include "dsi-panel-nt36850-truly-dualmipi-wqhd-cmd.dtsi"
 #include "dsi-panel-test-dualmipi-oled-cmd.dtsi"
 #include <dt-bindings/clock/mdss-10nm-pll-clk.h>
-#include "../nubia/NX606/dsi-panel-s6d1ha2a01-jdi-1080x2160-cmd.dtsi"
+#include "dsi-panel-s6d1ha2a01-jdi-1080x2160-cmd.dtsi"
 
 &soc {
 	dsi_panel_pwr_supply: dsi_panel_pwr_supply {
