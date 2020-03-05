@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -113,6 +113,9 @@
 			qcom,msm-dai-q6-mi2s-dev-id = <3>;
 			qcom,msm-mi2s-rx-lines = <1>;
 			qcom,msm-mi2s-tx-lines = <2>;
+			pinctrl-names = "default", "sleep";
+			pinctrl-0 = <&quat_mi2s_active &quat_mi2s_sd0_active &quat_mi2s_sd1_active>;
+			pinctrl-1 = <&quat_mi2s_sleep &quat_mi2s_sd0_sleep &quat_mi2s_sd1_sleep>;
 		};
 
 		dai_mi2s4: qcom,msm-dai-q6-mi2s-quin {
@@ -262,11 +265,6 @@
 			qcom,msm-dai-q6-dev-id = <240>;
 		};
 
-		afe_loopback_tx: qcom,msm-dai-q6-afe-loopback-tx {
-			compatible = "qcom,msm-dai-q6-dev";
-			qcom,msm-dai-q6-dev-id = <24577>;
-		};
-
 		incall_record_rx: qcom,msm-dai-q6-incall-record-rx {
 			compatible = "qcom,msm-dai-q6-dev";
 			qcom,msm-dai-q6-dev-id = <32771>;
@@ -300,9 +298,6 @@
 
 	hostless: qcom,msm-pcm-hostless {
 		compatible = "qcom,msm-pcm-hostless";
-		audio_test_mod {
-			compatible = "qcom,audio-test-mod";
-		};
 	};
 
 	audio_apr: qcom,msm-audio-apr {
@@ -512,7 +507,7 @@
 		};
 	};
 
-	msm_dai_tdm_quat_rx: qcom,msm-dai-tdm-quat-rx {
+	qcom,msm-dai-tdm-quat-rx {
 		compatible = "qcom,msm-dai-tdm";
 		qcom,msm-cpudai-tdm-group-id = <37168>;
 		qcom,msm-cpudai-tdm-group-num-ports = <1>;

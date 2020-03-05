@@ -4005,9 +4005,7 @@ static int fg_psy_get_property(struct power_supply *psy,
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_CAPACITY:
-		if (!get_extern_fg_regist_done())
-			pval->intval = get_prop_pre_shutdown_soc();
-		else if (chip->use_external_fg && external_fg
+		if (chip->use_external_fg && external_fg
 				&& external_fg->get_battery_soc)
 			pval->intval = external_fg->get_battery_soc();
 		else
@@ -4031,10 +4029,7 @@ static int fg_psy_get_property(struct power_supply *psy,
 			pval->intval = 0;
 		break;
 	case POWER_SUPPLY_PROP_TEMP:
-		if (!get_extern_fg_regist_done()
-				&& get_extern_bq_present())
-			pval->intval = DEFALUT_BATT_TEMP;
-		else if (chip->use_external_fg && external_fg
+		if (chip->use_external_fg && external_fg
 				&& external_fg->get_average_current) {
 			pval->intval = external_fg->get_battery_temperature();
 		} else

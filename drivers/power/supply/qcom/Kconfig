@@ -26,15 +26,6 @@ config OP_DEBUG_CHG
 	  print vbus vbat current information
 	  a
 
-config ONEPLUS_FASTCHG
-	tristate "ONEPLUS FAST CHARGE"
-	depends on I2C
-	help
-	  Say Y here to enable the ONEPLUS FAST CHARGE driver.This adds support
-	  for VOOC charge and state of charge of battery connected to
-	  the battery. The state of charge is reported through a battery power
-	  supply property
-
 config QPNP_FG_GEN3
 	tristate "QPNP GEN3 fuel gauge driver"
 	depends on MFD_SPMI_PMIC

@@ -1407,18 +1407,11 @@ static int smb2_batt_set_prop(struct power_supply *psy,
 		rc = smblib_set_prop_charge_parameter_set(chg);
 		break;
 	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
-		if (!val->intval) {
-			chg->dash_on = get_prop_fast_chg_started(chg);
-			if (chg->dash_on) {
-				switch_mode_to_normal();
-				op_set_fast_chg_allow(chg, false);
-			}
-		}
-	rc = vote(chg->usb_icl_votable, USER_VOTER,
-	!val->intval, 0);
-	rc = vote(chg->dc_suspend_votable, USER_VOTER,
-	!val->intval, 0);
-	chg->chg_enabled = (bool)val->intval;
+		rc = vote(chg->usb_icl_votable, USER_VOTER,
+		!val->intval, 0);
+		rc = vote(chg->dc_suspend_votable, USER_VOTER,
+		!val->intval, 0);
+		chg->chg_enabled = (bool)val->intval;
 		break;
 	case POWER_SUPPLY_PROP_IS_AGING_TEST:
 		chg->is_aging_test = (bool)val->intval;

@@ -43,7 +43,6 @@
 #include <linux/moduleparam.h>
 #include <linux/msm-bus.h>
 #include <linux/qpnp/qpnp-adc.h>
-#include "op_charge.h"
 
 
 #define SOC_INVALID                   0x7E
@@ -5230,60 +5229,6 @@ static void op_get_aicl_work(struct work_struct *work)
 }
 static bool is_usb_present(struct smb_charger *chg);
 
-static void op_dash_check_work(struct work_struct *work)
-{
-	struct delayed_work *dwork = to_delayed_work(work);
-	struct smb_charger *chg = container_of(dwork,
-	struct smb_charger, dash_check_work);
-	int soc, temp;
-
-	chg->dash_check_count++;
-	if (!is_usb_present(chg)) {
-		chg->dash_check_count = 0;
-		return;
-	}
-	if (!chg->dash_present) {
-		chg->dash_check_count = 0;
-		return;
-	}
-	if (op_get_fastchg_ing(chg)) {
-		chg->dash_check_count = 0;
-		return;
-	}
-	if (chg->non_stand_chg_count < 300) {
-		schedule_delayed_work(&chg->dash_check_work,
-			msecs_to_jiffies(TIME_1000MS));
-		return;
-	}
-
-	chg->dash_check_count = 0;
-	soc = get_prop_batt_capacity(chg);
-	temp  = get_prop_batt_temp(chg);
-	if (soc >= 1 && temp < 410) {
-		chg->re_trigr_dash_done = true;
-		set_usb_switch(chg, false);
-		set_usb_switch(chg, true);
-	}
-}
-
-static int get_usb_temp(struct smb_charger *chg);
-
-static void op_connect_temp_check_work(struct work_struct *work)
-{
-	struct delayed_work *dwork = to_delayed_work(work);
-	struct smb_charger *chg = container_of(dwork,
-				struct smb_charger, connecter_check_work);
-
-	if (!chg->vbus_present)
-		return;
-	chg->connecter_temp = get_usb_temp(chg);
-	if (chg->connecter_temp < 68)
-		schedule_delayed_work(&chg->connecter_check_work,
-				msecs_to_jiffies(200));
-	else
-		op_disconnect_vbus(chg, true);
-}
-
 irqreturn_t smblib_handle_aicl_done(int irq, void *data)
 {
 	struct smb_irq_data *irq_data = data;
@@ -5765,11 +5710,8 @@ static void set_usb_switch(struct smb_charger *chg, bool enable)
 			vote(chg->usb_icl_votable, AICL_RERUN_VOTER,
 					true, DCP_CURRENT_UA);
 		}
-		set_mcu_en_gpio_value(1);
 		usleep_range(10000, 10002);
-		usb_sw_gpio_set(1);
 		usleep_range(10000, 10002);
-		mcu_en_gpio_set(0);
 		if (chg->boot_usb_present)
 			retrger_time = TIME_3S;
 		else
@@ -5777,10 +5719,6 @@ static void set_usb_switch(struct smb_charger *chg, bool enable)
 		if (!chg->re_trigr_dash_done)
 			schedule_delayed_work(&chg->rechk_sw_dsh_work,
 					msecs_to_jiffies(retrger_time));
-	} else {
-		pr_err("switch off fastchg\n");
-		usb_sw_gpio_set(0);
-		mcu_en_gpio_set(1);
 	}
 }
 
@@ -7162,31 +7100,6 @@ static void op_otg_switch(struct work_struct *work)
 	g_chg->pre_cable_pluged = usb_pluged;
 }
 
-static int get_usb_temp(struct smb_charger *chg)
-{
-	struct qpnp_vadc_chip *vadc_dev;
-	struct qpnp_vadc_result result;
-	int ret, i;
-
-	vadc_dev = qpnp_get_vadc(chg->dev, "usb-temp");
-	if (IS_ERR(vadc_dev)) {
-		ret = PTR_ERR(vadc_dev);
-			pr_err("vadc property missing, ret=%d\n", ret);
-		return ret;
-	}
-	ret = qpnp_vadc_read(vadc_dev, VADC_AMUX5_GPIO_PU1, &result);
-	chg->connecter_voltage = (int) result.physical/1000;
-	for (i = ARRAY_SIZE(con_volt_30k) - 1; i >= 0; i--) {
-		if (con_volt_30k[i] >= chg->connecter_voltage)
-			break;
-		else if (i == 0)
-			break;
-	}
-	pr_debug("connectter vol:%d,temp:%d\n",
-				chg->connecter_voltage, con_volt_30k[i]);
-	return con_temp_30k[i];
-}
-
 void op_disconnect_vbus(struct smb_charger *chg, bool enable)
 {
 
@@ -7208,7 +7121,6 @@ void op_disconnect_vbus(struct smb_charger *chg, bool enable)
 	pr_info("usb connecter hot,Vbus disconnected!");
 	chg->dash_on = get_prop_fast_chg_started(chg);
 	if (chg->dash_on) {
-		switch_mode_to_normal();
 		op_set_fast_chg_allow(chg, false);
 	}
 	gpio_set_value(chg->vbus_ctrl, 1);
@@ -7624,13 +7536,6 @@ bool get_prop_fastchg_status(struct smb_charger *chg)
 
 	return false;
 }
-
-static struct notify_dash_event notify_unplug_event  = {
-	.notify_event	= update_dash_unplug_status,
-	.op_contrl		= op_contrl,
-	.notify_dash_charger_present
-		= set_dash_charger_present,
-};
 
 void op_pm8998_regmap_register(struct qpnp_pon *pon)
 {
@@ -8339,16 +8244,12 @@ int smblib_init(struct smb_charger *chg)
 	INIT_DELAYED_WORK(&chg->op_re_set_work, op_recovery_set_work);
 	INIT_WORK(&chg->get_aicl_work, op_get_aicl_work);
 	INIT_WORK(&chg->otg_switch_work, op_otg_switch);
-	INIT_DELAYED_WORK(&chg->dash_check_work, op_dash_check_work);
-	INIT_DELAYED_WORK(&chg->connecter_check_work,
-					op_connect_temp_check_work);
 	INIT_DELAYED_WORK(&chg->revertboost_recovery_work,
 				op_revert_boost_recovery_work);
 	schedule_delayed_work(&chg->revertboost_recovery_work,
 				msecs_to_jiffies(16000));
 	schedule_delayed_work(&chg->heartbeat_work,
 			msecs_to_jiffies(HEARTBEAT_INTERVAL_MS));
-	notify_dash_unplug_register(&notify_unplug_event);
 	wakeup_source_init(&chg->chg_wake_lock, "chg_wake_lock");
 	g_chg = chg;
 
@@ -8465,6 +8366,5 @@ int smblib_deinit(struct smb_charger *chg)
 
 	smblib_iio_deinit(chg);
 
-	notify_dash_unplug_unregister(&notify_unplug_event);
 	return 0;
 }

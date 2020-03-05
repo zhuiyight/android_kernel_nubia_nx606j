@@ -503,12 +503,8 @@ struct smb_charger {
 };
 
 int smblib_set_prop_charge_parameter_set(struct smb_charger *chg);
-extern void set_mcu_en_gpio_value(int value);
-extern void usb_sw_gpio_set(int value);
 extern bool op_set_fast_chg_allow(struct smb_charger *chg, bool enable);
 extern bool get_prop_fast_chg_started(struct smb_charger *chg);
-extern void mcu_en_gpio_set(int value);
-extern void switch_mode_to_normal(void);
 int smblib_read(struct smb_charger *chg, u16 addr, u8 *val);
 int smblib_masked_write(struct smb_charger *chg, u16 addr, u8 mask, u8 val);
 int smblib_write(struct smb_charger *chg, u16 addr, u8 val);

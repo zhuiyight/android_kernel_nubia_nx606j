@@ -32,7 +32,7 @@
 #include <linux/inetdevice.h>
 #include <cds_sched.h>
 #include <cds_utils.h>
-
+#include "sme_power_save_api.h"
 #include <wlan_hdd_p2p.h>
 #include <linux/wireless.h>
 #include <net/cfg80211.h>

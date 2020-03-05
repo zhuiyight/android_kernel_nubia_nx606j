@@ -47,6 +47,7 @@
 		spi0 = &qupv3_se8_spi;
 		i2c0 = &qupv3_se10_i2c;
 		i2c1 = &qupv3_se3_i2c;
+		i2c2 = &qupv3_se14_i2c;
 		hsuart0 = &qupv3_se6_4uart;
 	};
 
@@ -497,7 +498,7 @@
 			compatible = "android,firmware";
 			vbmeta {
 				compatible = "android,vbmeta";
-				parts = "vbmeta,boot,system,vendor,dtbo";
+				parts = "vbmeta,boot,recovery,system,vendor,dtbo";
 			};
 
 			fstab {
@@ -507,8 +508,16 @@
 					dev = "/dev/block/platform/soc/1d84000.ufshc/by-name/vendor";
 					type = "ext4";
 					mnt_flags = "ro,barrier=1,discard";
-					fsmgr_flags = "wait,slotselect,avb";
+					fsmgr_flags = "wait,avb";
 				};
+                                system {
+					compatible = "android,vendor";
+					dev = "/dev/block/platform/soc/1d84000.ufshc/by-name/system";
+					type = "ext4";
+					mnt_flags = "ro,barrier=1,discard";
+					fsmgr_flags = "wait,avb";
+				};
+
 			};
 		};
 	};
@@ -530,7 +539,7 @@
 
 		removed_region: removed_region@85fc0000 {
 			no-map;
-			reg = <0 0x85fc0000 0 0x4b40000>; /* enlarge TA memory size from 34M to 62M on 2018/09/03 */
+			reg = <0 0x85fc0000 0 0x2f40000>;
 		};
 
 		qseecom_mem: qseecom_region@0x8ab00000 {
@@ -1277,7 +1286,7 @@
 
 	clock_debug: qcom,cc-debug@100000 {
 		compatible = "qcom,debugcc-sdm845";
-		qcom,cc-count = <6>;
+		qcom,cc-count = <5>;
 		qcom,gcc = <&clock_gcc>;
 		qcom,videocc = <&clock_videocc>;
 		qcom,camcc = <&clock_camcc>;
@@ -1732,7 +1741,7 @@
 		clock-names = "xo";
 		qcom,proxy-clock-names = "xo";
 		qcom,pil-generic-irq-handler;
-		status = "disabled";
+		status = "ok";
 
 		qcom,pas-id = <14>;
 		qcom,proxy-timeout-ms = <10000>;
@@ -1928,6 +1937,11 @@
 		kaslr_offset@6d0 {
 			compatible = "qcom,msm-imem-kaslr_offset";
 			reg = <0x6d0 12>;
+		};
+
+		reduced_sdi_mode@6dc {
+			compatible = "qcom,msm-imem-reduced_sdi_mode";
+			reg = <0x6dc 4>;
 		};
 
 		diag_dload@c8 {
@@ -2498,7 +2512,7 @@
 
 	qcom_seecom: qseecom@86d00000 {
 		compatible = "qcom,qseecom";
-		reg = <0x86d00000 0x03E00000>;  /* enlarge TA memory size from 34M to 62M on 2018/09/03 */
+		reg = <0x86d00000 0x2200000>;
 		reg-names = "secapp-region";
 		qcom,hlos-num-ce-hw-instances = <1>;
 		qcom,hlos-ce-hw-instance = <0>;
@@ -2671,7 +2685,7 @@
 			<0 432 0>;
 		interrupt-names = "ipa-irq", "gsi-irq";
 		qcom,ipa-hw-ver = <13>; /* IPA core version = IPAv3.5.1 */
-		qcom,ipa-hw-mode = <0>;
+		qcom,ipa-hw-mode = <1>;
 		qcom,ee = <0>;
 		qcom,use-ipa-tethering-bridge;
 		qcom,modem-cfg-emb-pipe-flt;
@@ -2870,7 +2884,7 @@
 	};
 
 	dcc: dcc_v2@10a2000 {
-		compatible = "qcom,dcc-v2";
+		compatible = "qcom,dcc_v2";
 		reg = <0x10a2000 0x1000>,
 		      <0x10ae000 0x2000>;
 		reg-names = "dcc-base", "dcc-ram-base";
@@ -2979,6 +2993,7 @@
 				 <DCC_READ 0x011360b0 1 0>,
 				 <DCC_READ 0x0113e030 2 0>,
 				 <DCC_READ 0x01141000 1 0>,
+				 <DCC_READ 0x01142028 1 0>,
 				 <DCC_READ 0x01148058 4 0>,
 				 <DCC_READ 0x01160410 3 0>,
 				 <DCC_READ 0x011604a0 1 0>,
@@ -2989,6 +3004,7 @@
 				 <DCC_READ 0x011b6044 4 0>,
 				 <DCC_READ 0x011be030 2 0>,
 				 <DCC_READ 0x011c1000 1 0>,
+				 <DCC_READ 0x011c2028 1 0>,
 				 <DCC_READ 0x011c8058 4 0>,
 				 <DCC_READ 0x011e0410 3 0>,
 				 <DCC_READ 0x011e04a0 1 0>,
@@ -3000,6 +3016,7 @@
 				 <DCC_READ 0x012360B0 1 0>,
 				 <DCC_READ 0x0123E030 2 0>,
 				 <DCC_READ 0x01241000 1 0>,
+				 <DCC_READ 0x01242028 1 0>,
 				 <DCC_READ 0x01248058 4 0>,
 				 <DCC_READ 0x01260410 3 0>,
 				 <DCC_READ 0x012604a0 1 0>,
@@ -3012,6 +3029,7 @@
 				 <DCC_READ 0x012b60b0 1 0>,
 				 <DCC_READ 0x012be030 2 0>,
 				 <DCC_READ 0x012c1000 1 0>,
+				 <DCC_READ 0x012c2028 1 0>,
 				 <DCC_READ 0x012c8058 4 0>,
 				 <DCC_READ 0x012e0410 3 0>,
 				 <DCC_READ 0x012e04a0 1 0>,
@@ -3020,6 +3038,7 @@
 				 <DCC_READ 0x012e6418 1 0>,
 				 <DCC_READ 0x01380900 8 0>,
 				 <DCC_READ 0x01380d00 5 0>,
+				 <DCC_READ 0x01350110 4 0>,
 				 <DCC_READ 0x01430280 1 0>,
 				 <DCC_READ 0x01430288 1 0>,
 				 <DCC_READ 0x0143028c 7 0>,
@@ -3028,6 +3047,7 @@
 				 <DCC_READ 0x011360b0 1 0>,
 				 <DCC_READ 0x0113e030 2 0>,
 				 <DCC_READ 0x01141000 1 0>,
+				 <DCC_READ 0x01142028 1 0>,
 				 <DCC_READ 0x01148058 4 0>,
 				 <DCC_READ 0x01160410 3 0>,
 				 <DCC_READ 0x011604a0 1 0>,
@@ -3038,6 +3058,7 @@
 				 <DCC_READ 0x011b6044 4 0>,
 				 <DCC_READ 0x011be030 2 0>,
 				 <DCC_READ 0x011c1000 1 0>,
+				 <DCC_READ 0x011c2028 1 0>,
 				 <DCC_READ 0x011c8058 4 0>,
 				 <DCC_READ 0x011e0410 3 0>,
 				 <DCC_READ 0x011e04a0 1 0>,
@@ -3049,6 +3070,7 @@
 				 <DCC_READ 0x012360b0 1 0>,
 				 <DCC_READ 0x0123e030 2 0>,
 				 <DCC_READ 0x01241000 1 0>,
+				 <DCC_READ 0x01242028 1 0>,
 				 <DCC_READ 0x01248058 4 0>,
 				 <DCC_READ 0x01260410 3 0>,
 				 <DCC_READ 0x012604a0 1 0>,
@@ -3061,6 +3083,7 @@
 				 <DCC_READ 0x012b60b0 1 0>,
 				 <DCC_READ 0x012be030 2 0>,
 				 <DCC_READ 0x012C1000 1 0>,
+				 <DCC_READ 0x012C2028 1 0>,
 				 <DCC_READ 0x012C8058 4 0>,
 				 <DCC_READ 0x012e0410 3 0>,
 				 <DCC_READ 0x012e04a0 1 0>,
@@ -3069,6 +3092,7 @@
 				 <DCC_READ 0x012e6418 1 0>,
 				 <DCC_READ 0x01380900 8 0>,
 				 <DCC_READ 0x01380d00 5 0>,
+				 <DCC_READ 0x01350110 4 0>,
 				 <DCC_READ 0x01430280 1 0>,
 				 <DCC_READ 0x01430288 1 0>,
 				 <DCC_READ 0x0143028c 7 0>,
@@ -3472,7 +3496,7 @@
 
 		gpu-virt-max-step {
 			polling-delay-passive = <10>;
-			polling-delay = <0>;
+			polling-delay = <100>;
 			thermal-governor = "step_wise";
 			disable-thermal-zone;
 			trips {

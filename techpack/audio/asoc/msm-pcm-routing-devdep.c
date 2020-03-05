@@ -17,6 +17,7 @@
 #include <sound/hwdep.h>
 #include <sound/devdep_params.h>
 #include "msm-pcm-routing-devdep.h"
+#include "msm-pcm-routing-v2.h"
 #include "msm-ds2-dap-config.h"
 
 #ifdef CONFIG_SND_HWDEP

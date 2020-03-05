@@ -27,6 +27,7 @@
 #include <linux/delay.h>
 #include <linux/regulator/consumer.h>
 #include <linux/delay.h>
+#include <linux/ctype.h>
 
 #define WLED_MOD_EN_REG(base, n)	(base + 0x60 + n*0x10)
 #define WLED_IDAC_DLY_REG(base, n)	(WLED_MOD_EN_REG(base, n) + 0x01)
@@ -2900,7 +2901,6 @@ static int qpnp_led_fill_parameter_breath_blink(struct qpnp_led_data *led_param,
         }
         local_lpg_parameter = local_lpg_parameter + BRIGHTNESS_STEP;
     }
-   //leds_info("led_param->index:%d,num_duty_pcts:%d :led_param->max_grade:%d \n",i,pwm_cfg->duty_cycles->num_duty_pcts,led_param->max_grade);
 
     /*
        * fill parameter  for pwm_cfg.
@@ -2913,12 +2913,6 @@ static int qpnp_led_fill_parameter_breath_blink(struct qpnp_led_data *led_param,
     pwm_cfg->lut_params.start_idx = pwm_cfg->duty_cycles->start_idx;
     pwm_cfg->lut_params.lut_pause_hi = fade_parameter_convert(led_param->fullon_time);
     pwm_cfg->lut_params.lut_pause_lo = fade_parameter_convert(led_param->fulloff_time);
-
- //   leds_info("led_param->fullon_time:%d,fulloff_time:%d\n",led_param->fullon_time,led_param->fulloff_time);
-
-//    leds_info("pause_hi:%d,pause_lo:%d :ramp_step_ms:%d\n", pwm_cfg->lut_params.lut_pause_hi, pwm_cfg->lut_params.lut_pause_lo,
-//        pwm_cfg->lut_params.ramp_step_ms );
-
 
 	if (loop)
 	{
@@ -3061,10 +3055,6 @@ static ssize_t qpnp_led_debug_store(struct device *dev,
 	unsigned long parameter_one = simple_strtoul(buf, &after, 10);
 	led = container_of(led_cdev, struct qpnp_led_data, cdev);
 	led->debug_level = (int) parameter_one;
-//	LOG_INFO("debug_level = %d \n",led->debug_level);
-
-//    leds_info("led->bgpio5_test:%x\n",led->bgpio5_test);
-//    gpio_direction_output(led->bgpio5_test,led->debug_level); //Output HIGH
 
 	return count;
 }
@@ -3113,7 +3103,6 @@ static int  qpnp_led_mode_set(struct qpnp_led_data *led,struct qpnp_led_data *le
 			pwm_cfg->mode = PWM_MODE;
 			led->cdev.brightness = grade_parameter_convert(led,led_grade_temp);
 
-                   leds_info("led_on channel:%d brightness:%d,led_grade:%d \n",led_param->ztemt_channel,led_grade_temp,led->cdev.brightness);
 		break;
 		case RGB_LED_MODE_ONCE_BLINK:
 			if (!led->rgb_cfg->is_auto_breath)

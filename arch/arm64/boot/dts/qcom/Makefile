@@ -1,10 +1,10 @@
-#dtb-$(CONFIG_ARCH_QCOM)	+= apq8016-sbc.dtb msm8916-mtp.dtb
-#dtb-$(CONFIG_ARCH_QCOM)	+= msm8996-mtp.dtb
-#dtb-$(CONFIG_ARCH_QCOM)	+= apq8096-db820c.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= apq8016-sbc.dtb msm8916-mtp.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= msm8996-mtp.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= apq8096-db820c.dtb
 
 ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)
 	dtbo-$(CONFIG_ARCH_SDM845) += \
-		sdm845-mtp-overlay.dtbo \
+			sdm845-mtp-overlay.dtbo \
 		sdm845-v2-mtp-overlay.dtbo \
 		sdm845-v2.1-mtp-overlay.dtbo
 
@@ -640,6 +640,7 @@ dtb-$(CONFIG_ARCH_SDM429) += sdm429-mtp.dtb \
 
 endif
 
-always		:= $(dtb-y)
+#always		:= $(dtb-y)
+always          := $(NUBIA_DTS_NAME)
 subdir-y	:= $(dts-dirs)
 clean-files	:= *.dtb

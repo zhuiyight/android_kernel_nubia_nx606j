@@ -814,7 +814,6 @@ exit:
 static int dsi_panel_power_off(struct dsi_panel *panel)
 {
 	int rc = 0;
-
 #ifdef CONFIG_NUBIA_SWITCH_LCD
 	if(switch_panel_res){
 		dsi_panel_notifier(MSM_DRM_SWITCH_EARLY_EVENT_BLANK,MSM_DRM_SLAVE_POWERDOWN);
@@ -843,22 +842,6 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 		pr_err("[%s] failed set pinctrl state, rc=%d\n", panel->name,
 		       rc);
 	}
-#else
-	if (gpio_is_valid(panel->reset_config.reset_gpio))
-		gpio_set_value(panel->reset_config.reset_gpio, 0);
-#endif
-
-#ifdef CONFIG_NUBIA_SWITCH_LCD
-	if(!switch_panel_res){
-		if (gpio_is_valid(panel->switch_config.sub_tp_reset_gpio))
-			gpio_set_value(panel->switch_config.sub_tp_reset_gpio, 0);
-	}
-	if (gpio_is_valid(panel->reset_config.sub_lcd_reset_gpio))
-		gpio_set_value(panel->reset_config.sub_lcd_reset_gpio, 0);
-#endif
-
-	if (gpio_is_valid(panel->reset_config.lcd_mode_sel_gpio))
-		gpio_set_value(panel->reset_config.lcd_mode_sel_gpio, 0);
 
 #ifdef CONFIG_NUBIA_SWITCH_LCD
 		if(switch_panel_res) 
@@ -868,13 +851,30 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 		if (rc)
 			pr_err("[%s] failed to enable vregs, rc=%d,switch_panel_res=%d\n", panel->name, rc,switch_panel_res);
 #else
+		rc = dsi_pwr_enable_regulator(&panel->power_info, false);
+		if (rc)
+			pr_err("[%s] failed to enable vregs, rc=%d\n", panel->name, rc);
+#endif
+	}
+#else
+	if (gpio_is_valid(panel->reset_config.reset_gpio))
+		gpio_set_value(panel->reset_config.reset_gpio, 0);
+#ifdef CONFIG_NUBIA_SWITCH_LCD
+	if(!switch_panel_res){
+		if (gpio_is_valid(panel->switch_config.sub_tp_reset_gpio))
+			gpio_set_value(panel->switch_config.sub_tp_reset_gpio, 0);
+	}
+	if (gpio_is_valid(panel->reset_config.sub_lcd_reset_gpio))
+		gpio_set_value(panel->reset_config.sub_lcd_reset_gpio, 0);
+#endif
+	if (gpio_is_valid(panel->reset_config.lcd_mode_sel_gpio))
+		gpio_set_value(panel->reset_config.lcd_mode_sel_gpio, 0);
+
 	rc = dsi_panel_set_pinctrl_state(panel, false);
 	if (rc) {
 		pr_err("[%s] failed set pinctrl state, rc=%d\n", panel->name,
 		       rc);
 	}
-#endif
-
 #ifdef CONFIG_NUBIA_SWITCH_LCD
 	if(switch_panel_res)	
 		rc = dsi_pwr_enable_regulator(&panel->sub_panel_power_info, false);
@@ -883,9 +883,10 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 #else
 	rc = dsi_pwr_enable_regulator(&panel->power_info, false);
 #endif
-
 	if (rc)
 		pr_err("[%s] failed to enable vregs, rc=%d\n", panel->name, rc);
+
+#endif
 
 #ifdef CONFIG_NUBIA_SWITCH_LCD
 	if(switch_panel_res){
@@ -895,9 +896,9 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 		dsi_panel_notifier(MSM_DRM_SWITCH_EVENT_BLANK,MSM_DRM_MAJOR_POWERDOWN);
 	}
 #endif
-
 	return rc;
 }
+
 static int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
 				enum dsi_cmd_set_type type)
 {
@@ -1869,6 +1870,7 @@ static int dsi_panel_parse_phy_props(struct dsi_panel_phy_props *props,
 error:
 	return rc;
 }
+
 const char *cmd_set_prop_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-pre-on-command",
 	"qcom,mdss-dsi-on-command",

@@ -553,7 +553,6 @@
 		lab-supply = <&lab_regulator>;
 		ibb-supply = <&ibb_regulator>;
 	};
-
         dsi_dual_test_cmd_display: qcom,dsi-display@17 {
                 compatible = "qcom,dsi-display";
                 label = "dsi_dual_test_cmd";
@@ -578,7 +577,6 @@
                 ibb-supply = <&ibb_regulator>;
                 oled-vdda-supply = <&pm8998_l22>;
         };
-
 	dsi_nubia_jdi_s6d1ha2a01_cmd_display: qcom,dsi-display@18 {
 		compatible = "qcom,dsi-display";
 		label = "dsi_nubia_jdi_s6d1ha2a01_cmd_display";
@@ -601,7 +599,6 @@
 		lab-supply = <&lab_regulator>;
 		ibb-supply = <&ibb_regulator>;
 	};
-	
 	sde_wb: qcom,wb-display@0 {
 		compatible = "qcom,wb-display";
 		cell-index = <0>;
@@ -616,7 +613,7 @@
 		};
 	};
 };
-/*
+
 &sde_dp {
 	qcom,dp-usbpd-detection = <&pmi8998_pdphy>;
 	qcom,ext-disp = <&ext_disp>;
@@ -624,27 +621,18 @@
 	pinctrl-names = "mdss_dp_active", "mdss_dp_sleep";
 	pinctrl-0 = <&sde_dp_aux_active &sde_dp_usbplug_cc_active>;
 	pinctrl-1 = <&sde_dp_aux_suspend &sde_dp_usbplug_cc_suspend>;
-	qcom,aux-en-gpio = <&tlmm 43 0>;
-	qcom,aux-sel-gpio = <&tlmm 51 0>;
+	qcom,aux-en-gpio = <&tlmm 39 0>;
+	qcom,aux-sel-gpio = <&tlmm 40 0>;
 	qcom,usbplug-cc-gpio = <&tlmm 38 0>;
 };
 
 &mdss_mdp {
 	connectors = <&sde_rscc &sde_wb &sde_dp>;
 };
-*/
-&mdss_mdp {
-	connectors = <&sde_rscc &sde_wb>;
-	};
 
 &dsi_dual_nt35597_truly_video {
 	qcom,mdss-dsi-t-clk-post = <0x0D>;
 	qcom,mdss-dsi-t-clk-pre = <0x2D>;
-	qcom,mdss-dsi-min-refresh-rate = <53>;
-	qcom,mdss-dsi-max-refresh-rate = <60>;
-	qcom,mdss-dsi-pan-enable-dynamic-fps;
-	qcom,mdss-dsi-pan-fps-update =
-		"dfps_immediate_porch_mode_vfp";
 	qcom,esd-check-enabled;
 	qcom,mdss-dsi-panel-status-check-mode = "reg_read";
 	qcom,mdss-dsi-panel-status-command = [06 01 00 01 00 00 01 0a];
@@ -666,7 +654,6 @@
 &dsi_dual_nt35597_truly_cmd {
 	qcom,mdss-dsi-t-clk-post = <0x0D>;
 	qcom,mdss-dsi-t-clk-pre = <0x2D>;
-	qcom,ulps-enabled;
 	qcom,esd-check-enabled;
 	qcom,mdss-dsi-panel-status-check-mode = "reg_read";
 	qcom,mdss-dsi-panel-status-command = [06 01 00 01 00 00 01 0a];
@@ -681,8 +668,6 @@
 			qcom,display-topology = <2 0 2>,
 						<1 0 2>;
 			qcom,default-topology-index = <0>;
-			qcom,partial-update-enabled = "single_roi";
-			qcom,panel-roi-alignment = <720 128 720 128 1440 128>;
 		};
 	};
 };
@@ -713,11 +698,6 @@
 &dsi_nt35597_truly_dsc_video {
 	qcom,mdss-dsi-t-clk-post = <0x0b>;
 	qcom,mdss-dsi-t-clk-pre = <0x23>;
-	qcom,mdss-dsi-min-refresh-rate = <53>;
-	qcom,mdss-dsi-max-refresh-rate = <60>;
-	qcom,mdss-dsi-pan-enable-dynamic-fps;
-	qcom,mdss-dsi-pan-fps-update =
-		"dfps_immediate_porch_mode_vfp";
 	qcom,esd-check-enabled;
 	qcom,mdss-dsi-panel-status-check-mode = "reg_read";
 	qcom,mdss-dsi-panel-status-command = [06 01 00 01 00 00 01 0a];
@@ -936,7 +916,6 @@
 &dsi_dual_nt35597_cmd {
 	qcom,mdss-dsi-t-clk-post = <0x0d>;
 	qcom,mdss-dsi-t-clk-pre = <0x2d>;
-	qcom,ulps-enabled;
 	qcom,mdss-dsi-display-timings {
 		 timing@0 {
 			qcom,mdss-dsi-panel-timings = [00 1c 08 07 23 22 07 07
@@ -944,8 +923,6 @@
 			qcom,display-topology = <2 0 2>,
 						<1 0 2>;
 			qcom,default-topology-index = <0>;
-			qcom,partial-update-enabled = "single_roi";
-			qcom,panel-roi-alignment = <720 128 720 128 1440 128>;
 		};
 	};
 };

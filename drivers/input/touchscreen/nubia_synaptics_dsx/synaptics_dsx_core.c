@@ -5445,8 +5445,6 @@ static void __exit synaptics_rmi4_exit(void)
 	platform_driver_unregister(&synaptics_rmi4_driver);
 
 	synaptics_rmi4_bus_exit();
-
-	return;
 }
 
 module_init(synaptics_rmi4_init);

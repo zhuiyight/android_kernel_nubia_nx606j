@@ -2187,7 +2187,6 @@ static int qpnp_haptics_parse_dt(struct hap_chip *chip)
 		pr_err( "Unable to read ztemt_vibrator_ms\n");
 		return rc;
 	}
-	hap_info("nubia ztemt_vibrator_ms:%d\n",temp);
 #endif
 
 	chip->act_type = HAP_LRA;
